@@ -15,8 +15,27 @@ from ..utils.constants import PHOTOSHOP_FILE_TYPES
 
 _MAX_PIL_IMAGE_DIMENSION = 30000
 # Limit workers to prevent system overload
-_MAX_WORKERS_LIMIT = 4
+_MAX_LOAD_WORKERS_LIMIT = 16
+_MAX_SAVE_WORKERS_LIMIT = 20
 _DEFAULT_TIMEOUT_SECONDS = 5  # 5 seconds per operation
+
+
+def _read_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
+    value = (os.getenv(name) or "").strip()
+    if not value:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return max(minimum, min(parsed, maximum))
+
+
+def _read_bool_env(name: str, default: bool = False) -> bool:
+    value = (os.getenv(name) or "").strip().lower()
+    if not value:
+        return default
+    return value in {"1", "true", "yes", "on"}
 
 
 def _should_fallback_from_jpeg(img: pil.Image) -> bool:
@@ -65,10 +84,53 @@ class ImageHandler:
     """Handles image loading and saving with controlled parallelism."""
 
     def __init__(self, max_workers: int | None = None) -> None:
-        # Limit workers to prevent system overload
+        # Load/decode workers are moderate; save workers can be higher for I/O throughput.
         cpu = cpu_count() or 2
-        default_workers = min(cpu, _MAX_WORKERS_LIMIT)
-        self.max_workers = min(max_workers or default_workers, _MAX_WORKERS_LIMIT)
+        default_load_workers = min(cpu, _MAX_LOAD_WORKERS_LIMIT)
+        self.max_workers = min(max_workers or default_load_workers, _MAX_LOAD_WORKERS_LIMIT)
+
+        load_workers_env = (os.getenv("SMARTSTITCH_LOAD_WORKERS") or "").strip()
+        if load_workers_env:
+            try:
+                configured_load = int(load_workers_env)
+            except ValueError:
+                configured_load = self.max_workers
+            self.max_workers = max(1, min(configured_load, _MAX_LOAD_WORKERS_LIMIT))
+
+        save_workers_env = (os.getenv("SMARTSTITCH_SAVE_WORKERS") or "").strip()
+        if save_workers_env:
+            try:
+                configured = int(save_workers_env)
+            except ValueError:
+                configured = self.max_workers
+            self.save_workers = max(1, min(configured, _MAX_SAVE_WORKERS_LIMIT))
+        else:
+            auto_save_workers = max(self.max_workers * 2, min(cpu * 2, _MAX_SAVE_WORKERS_LIMIT))
+            self.save_workers = max(1, min(auto_save_workers, _MAX_SAVE_WORKERS_LIMIT))
+
+        # Encoding knobs: lowering encode complexity often improves save time more than adding threads.
+        fast_save = _read_bool_env("SMARTSTITCH_FAST_SAVE", default=False)
+        default_jpeg_subsampling = 2 if fast_save else 0
+        default_webp_method = 0 if fast_save else 4
+
+        self.jpeg_subsampling = _read_int_env(
+            "SMARTSTITCH_JPEG_SUBSAMPLING",
+            default=default_jpeg_subsampling,
+            minimum=0,
+            maximum=2,
+        )
+        self.webp_method = _read_int_env(
+            "SMARTSTITCH_WEBP_METHOD",
+            default=default_webp_method,
+            minimum=0,
+            maximum=6,
+        )
+        self.png_compress_level = _read_int_env(
+            "SMARTSTITCH_PNG_COMPRESS_LEVEL",
+            default=0,
+            minimum=0,
+            maximum=9,
+        )
 
     @logFunc(inclass=True)
     def load(
@@ -171,11 +233,11 @@ class ImageHandler:
             PSDImage.frompil(img_obj).save(full_path)
         else:
             if effective_format.lower() in (".jpg", ".jpeg"):
-                img_obj.save(full_path, quality=quality, subsampling=0)
+                img_obj.save(full_path, quality=quality, subsampling=self.jpeg_subsampling, optimize=False)
             elif effective_format.lower() == ".webp":
-                img_obj.save(full_path, quality=quality, method=4)
+                img_obj.save(full_path, quality=quality, method=self.webp_method)
             elif effective_format.lower() == ".png":
-                img_obj.save(full_path, compress_level=0)
+                img_obj.save(full_path, compress_level=self.png_compress_level)
             else:
                 img_obj.save(full_path)
             img_obj.close()
@@ -209,16 +271,18 @@ class ImageHandler:
                 PSDImage.frompil(img).save(path)
             else:
                 if ext in (".jpg", ".jpeg"):
-                    img.save(path, quality=quality, subsampling=0)
+                    img.save(path, quality=quality, subsampling=self.jpeg_subsampling, optimize=False)
                 elif ext == ".webp":
-                    img.save(path, quality=quality, method=4)
+                    img.save(path, quality=quality, method=self.webp_method)
                 elif ext == ".png":
-                    img.save(path, compress_level=0)
+                    img.save(path, compress_level=self.png_compress_level)
                 else:
                     img.save(path)
             img.close()
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        save_pool_workers = max(1, min(self.save_workers, len(img_objs)))
+
+        with ThreadPoolExecutor(max_workers=save_pool_workers) as executor:
             futures = [
                 executor.submit(_save_one, img, path)
                 for img, path in zip(img_objs, full_paths)

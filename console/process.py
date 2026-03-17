@@ -1,10 +1,18 @@
 """Console-based stitch process using the unified pipeline."""
 import gc
+import os
 from dataclasses import dataclass
 from time import time
 
 from core.detectors import select_detector
-from core.services import DirectoryExplorer, ImageHandler, ImageManipulator, logFunc
+from core.services import (
+    DirectoryExplorer,
+    ImageHandler,
+    ImageManipulator,
+    PerfBenchmark,
+    is_benchmark_enabled,
+    logFunc,
+)
 from core.utils.constants import WIDTH_ENFORCEMENT
 from core.utils.image_utils import (
     _MAX_PIL_IMAGE_DIMENSION,
@@ -55,6 +63,16 @@ class ConsoleStitchProcess:
         )
 
         start_time = time()
+        benchmark = PerfBenchmark(
+            mode="console",
+            enabled=is_benchmark_enabled(),
+            metadata={
+                "input_folder": str(kwargs.get("input_folder") or ""),
+                "output_type": settings.output_type,
+                "detection_type": settings.detection_type,
+                "custom_width": settings.custom_width,
+            },
+        )
         print("--- Process Starting Up ---")
         print("Exploring input directory for working directories")
         input_folder = str(kwargs.get("input_folder") or "").strip()
@@ -66,6 +84,16 @@ class ConsoleStitchProcess:
 
         for idx, work_dir in enumerate(input_dirs, 1):
             print(f"-> Starting stitching process for working directory #{idx} <-")
+            stage_seconds: dict[str, float] = {
+                "load": 0.0,
+                "resize": 0.0,
+                "combine": 0.0,
+                "detect": 0.0,
+                "slice": 0.0,
+                "save": 0.0,
+            }
+            retries = 0
+            img_count = 0
 
             sensitivity = settings.sensitivity
             scan_step = settings.scan_step
@@ -81,13 +109,21 @@ class ConsoleStitchProcess:
                     img_manipulator = ImageManipulator()
                     detector = select_detector(detection_type=settings.detection_type)
 
+                    stage_start = time()
                     imgs = img_handler.load(work_dir)
+                    stage_seconds["load"] += time() - stage_start
+
+                    stage_start = time()
                     imgs = img_manipulator.resize(imgs, width_enforce_mode, settings.custom_width)
+                    stage_seconds["resize"] += time() - stage_start
 
                     print(f"[{idx}/{total}] Combining images into a single combined image")
+                    stage_start = time()
                     combined_img = img_manipulator.combine(imgs)
+                    stage_seconds["combine"] += time() - stage_start
 
                     print(f"[{idx}/{total}] Detecting & selecting valid slicing points")
+                    stage_start = time()
                     slice_points = detector.run(
                         combined_img,
                         settings.split_height,
@@ -101,26 +137,49 @@ class ConsoleStitchProcess:
                             combined_height=combined_img.size[1],
                             max_segment=_MAX_PIL_IMAGE_DIMENSION,
                         )
+                    stage_seconds["detect"] += time() - stage_start
 
                     print(f"[{idx}/{total}] Generating sliced output images in memory")
+                    stage_start = time()
                     sliced = img_manipulator.slice(combined_img, slice_points)
+                    stage_seconds["slice"] += time() - stage_start
 
                     print(f"[{idx}/{total}] Saving output images to storage")
                     img_count = len(sliced)
+                    stage_start = time()
                     img_handler.save_all(
                         work_dir,
                         sliced,
                         img_format=settings.output_type,
                         quality=settings.lossy_quality,
                     )
+                    stage_seconds["save"] += time() - stage_start
                     print(f"[{idx}/{total}] {img_count} images saved successfully")
+                    benchmark.add_directory(
+                        input_path=work_dir.input_path,
+                        output_path=work_dir.output_path,
+                        image_count=img_count,
+                        retries=retries,
+                        stage_seconds=stage_seconds,
+                        success=True,
+                    )
                     break
 
                 except Exception as exc:
                     if attempt >= _MAX_SENSITIVITY_RETRIES or not is_dimension_error(exc):
+                        benchmark.add_directory(
+                            input_path=work_dir.input_path,
+                            output_path=work_dir.output_path,
+                            image_count=img_count,
+                            retries=retries,
+                            stage_seconds=stage_seconds,
+                            success=False,
+                            error=str(exc),
+                        )
                         raise
 
                     new_sensitivity = max(0, int(sensitivity * _SENSITIVITY_RETRY_FACTOR))
+                    retries += 1
                     print(
                         f"Retrying folder '{work_dir.input_path}' due to large image output. "
                         f"Adjusting sensitivity {sensitivity} → {new_sensitivity}, scan_step → 5, "
@@ -136,4 +195,7 @@ class ConsoleStitchProcess:
             gc.collect()
 
         elapsed = time() - start_time
+        benchmark_file = benchmark.write_json(file_prefix="benchmark", total_elapsed_s=elapsed)
+        if benchmark_file and os.path.isfile(benchmark_file):
+            print(f"Benchmark saved to: {benchmark_file}")
         print(f"--- Process completed in {elapsed:.3f} seconds ---")

@@ -12,9 +12,11 @@ from core.services import (
     DirectoryExplorer,
     ImageHandler,
     ImageManipulator,
+    PerfBenchmark,
     PostProcessRunner,
     SettingsHandler,
     WatermarkService,
+    is_benchmark_enabled,
     logFunc,
 )
 from core.utils.image_utils import (
@@ -243,7 +245,7 @@ def _run_single_directory(
     max_workers: int | None = None,
     console_func: ConsoleFunc = print,
     status_callback: Callable[[str, str], None] | None = None,
-) -> int:
+) -> tuple[int, dict[str, float], int]:
     """Core image pipeline: load → resize → combine → detect → slice → save.
 
     This is the unified processing function used by both sequential and parallel modes.
@@ -273,6 +275,15 @@ def _run_single_directory(
     scan_step = snap.scan_step
     ignorable_pixels = snap.ignorable_pixels
     img_count = 0
+    retry_count = 0
+    stage_seconds: dict[str, float] = {
+        "load": 0.0,
+        "resize": 0.0,
+        "combine": 0.0,
+        "detect": 0.0,
+        "slice": 0.0,
+        "save": 0.0,
+    }
 
     for attempt in range(_MAX_SENSITIVITY_RETRIES + 1):
         imgs = None
@@ -281,15 +292,23 @@ def _run_single_directory(
         try:
             _check_cancelled()
             _status("load", "Preparing & loading images into memory")
+            stage_start = time()
             imgs = img_handler.load(work_dir, psd_first_layer_only=psd_first_layer_only)
+            stage_seconds["load"] += time() - stage_start
+
+            stage_start = time()
             imgs = img_manipulator.resize(imgs, snap.enforce_type, snap.enforce_width)
+            stage_seconds["resize"] += time() - stage_start
 
             _check_cancelled()
             _status("combine", "Combining images into a single combined image")
+            stage_start = time()
             combined_img = img_manipulator.combine(imgs)
+            stage_seconds["combine"] += time() - stage_start
 
             _check_cancelled()
             _status("detect", "Detecting & selecting valid slicing points")
+            stage_start = time()
             slice_points = detector.run(
                 combined_img,
                 snap.split_height,
@@ -303,17 +322,22 @@ def _run_single_directory(
                     combined_height=combined_img.size[1],
                     max_segment=_MAX_PIL_IMAGE_DIMENSION,
                 )
+            stage_seconds["detect"] += time() - stage_start
 
             _check_cancelled()
             _status("slice", "Generating sliced output images in memory")
+            stage_start = time()
             sliced = img_manipulator.slice(combined_img, slice_points)
+            stage_seconds["slice"] += time() - stage_start
 
             _check_cancelled()
             _status("save", "Saving output images to storage")
             img_count = len(sliced)
+            stage_start = time()
             img_handler.save_all(
                 work_dir, sliced, img_format=snap.output_type, quality=snap.lossy_quality,
             )
+            stage_seconds["save"] += time() - stage_start
             _status("save", f"{img_count} images saved successfully")
             break
 
@@ -322,6 +346,7 @@ def _run_single_directory(
                 raise
 
             new_sensitivity = max(0, int(sensitivity * _SENSITIVITY_RETRY_FACTOR))
+            retry_count += 1
             console_func(
                 f"Retrying folder '{work_dir.input_path}' due to large image output. "
                 f"Adjusting sensitivity {sensitivity} → {new_sensitivity}, scan_step → 5, "
@@ -334,7 +359,7 @@ def _run_single_directory(
         finally:
             close_images_safely(sliced, combined_img, imgs)
 
-    return img_count
+    return img_count, stage_seconds, retry_count
 
 
 def _run_pipeline(
@@ -347,12 +372,12 @@ def _run_pipeline(
     run_comiczip: bool,
     max_workers: int | None = None,
     console_func: ConsoleFunc = print,
-) -> int:
+) -> tuple[int, dict[str, float], int]:
     """Run full pipeline for a single directory (used by parallel mode).
 
     Returns the number of output images produced.
     """
-    img_count = _run_single_directory(
+    img_count, stage_seconds, retry_count = _run_single_directory(
         work_dir, snap,
         psd_first_layer_only=psd_first_layer_only,
         cancel_event=cancel_event,
@@ -361,25 +386,31 @@ def _run_pipeline(
     )
 
     if snap.has_watermark:
+        stage_start = time()
         _run_watermark(work_dir.output_path, snap, console_func)
+        stage_seconds["watermark"] = stage_seconds.get("watermark", 0.0) + (time() - stage_start)
 
     postprocess_runner = PostProcessRunner()
     if has_postprocess:
+        stage_start = time()
         postprocess_runner.run(
             workdirectory=work_dir,
             postprocess_app=snap.postprocess_app,
             postprocess_args=snap.postprocess_args,
             console_func=console_func,
         )
+        stage_seconds["postprocess"] = stage_seconds.get("postprocess", 0.0) + (time() - stage_start)
     if run_comiczip:
+        stage_start = time()
         postprocess_runner.run(
             workdirectory=work_dir,
             postprocess_app="python",
             postprocess_args=f"{_COMICZIP_SCRIPT} -i [stitched] -o [processed]",
             console_func=console_func,
         )
+        stage_seconds["comiczip"] = stage_seconds.get("comiczip", 0.0) + (time() - stage_start)
 
-    return img_count
+    return img_count, stage_seconds, retry_count
 
 
 def _process_work_directory(
@@ -391,7 +422,7 @@ def _process_work_directory(
     disable_postprocess: bool,
     disable_comiczip: bool,
     inner_max_workers: int | None = None,
-) -> tuple[str, int]:
+) -> tuple[str, int, dict[str, float], int]:
     """Entry point for parallel (subprocess) execution of a single directory."""
     _wm_run_log(
         print,
@@ -401,7 +432,7 @@ def _process_work_directory(
         f"header_enabled={snap.watermark_header_enabled}, "
         f"footer_enabled={snap.watermark_footer_enabled}"
     )
-    img_count = _run_pipeline(
+    img_count, stage_seconds, retry_count = _run_pipeline(
         work_dir,
         snap,
         psd_first_layer_only=psd_first_layer_only,
@@ -410,7 +441,7 @@ def _process_work_directory(
         run_comiczip=snap.run_comiczip and not disable_comiczip,
         max_workers=inner_max_workers,
     )
-    return work_dir.input_path, img_count
+    return work_dir.input_path, img_count, stage_seconds, retry_count
 
 
 class GuiStitchProcess:
@@ -446,6 +477,16 @@ class GuiStitchProcess:
         _wm_run_log(console_func, wm_line)
         has_postprocess = snap.run_postprocess and not disable_postprocess
         run_comiczip = snap.run_comiczip and not disable_comiczip
+        benchmark = PerfBenchmark(
+            mode="gui",
+            enabled=is_benchmark_enabled(),
+            metadata={
+                "input_path": input_path,
+                "parallel_processing": bool(snap.parallel_processing),
+                "has_postprocess": bool(has_postprocess),
+                "run_comiczip": bool(run_comiczip),
+            },
+        )
 
         step_pct = {
             "explore": 5.0,
@@ -479,6 +520,7 @@ class GuiStitchProcess:
                 disable_postprocess=disable_postprocess,
                 disable_comiczip=disable_comiczip,
                 status_func=status_func,
+                benchmark=benchmark,
             )
             return
 
@@ -489,6 +531,7 @@ class GuiStitchProcess:
             run_comiczip=run_comiczip,
             status_func=status_func,
             console_func=console_func,
+            benchmark=benchmark,
         )
 
     @staticmethod
@@ -500,6 +543,7 @@ class GuiStitchProcess:
         disable_postprocess: bool,
         disable_comiczip: bool,
         status_func: StatusFunc,
+        benchmark: PerfBenchmark,
     ) -> None:
         """Process multiple directories with controlled parallelism.
         
@@ -534,14 +578,31 @@ class GuiStitchProcess:
             for fut in concurrent.futures.as_completed(futures):
                 work_dir = futures[fut]
                 try:
-                    dir_path, img_count = fut.result()
+                    dir_path, img_count, stage_seconds, retry_count = fut.result()
                     completed += 1
                     dirname = os.path.basename(dir_path) or dir_path
                     msg = f"Working - [{completed}/{total}] Done: {dirname} ({img_count} imgs)"
+                    benchmark.add_directory(
+                        input_path=work_dir.input_path,
+                        output_path=work_dir.output_path,
+                        image_count=img_count,
+                        retries=retry_count,
+                        stage_seconds=stage_seconds,
+                        success=True,
+                    )
                 except Exception as exc:
                     cancel_event.set()
                     dirname = os.path.basename(work_dir.input_path) or work_dir.input_path
                     msg = f"Working - Failed: {dirname} -> {exc}"
+                    benchmark.add_directory(
+                        input_path=work_dir.input_path,
+                        output_path=work_dir.output_path,
+                        image_count=0,
+                        retries=0,
+                        stage_seconds={},
+                        success=False,
+                        error=str(exc),
+                    )
                     status_func(int(base_pct), msg)
                     for pending in futures:
                         if pending is not fut:
@@ -555,6 +616,9 @@ class GuiStitchProcess:
                 gc.collect()
 
         elapsed = time() - start_time
+        benchmark_file = benchmark.write_json(file_prefix="benchmark", total_elapsed_s=elapsed)
+        if benchmark_file:
+            status_func(100, f"Idle - Benchmark saved: {benchmark_file}")
         status_func(100, f"Idle - Process completed in {elapsed:.3f} seconds")
 
     @staticmethod
@@ -567,6 +631,7 @@ class GuiStitchProcess:
         run_comiczip: bool,
         status_func: StatusFunc,
         console_func: ConsoleFunc,
+        benchmark: PerfBenchmark,
     ) -> None:
         postprocess_runner = PostProcessRunner()
 
@@ -577,7 +642,7 @@ class GuiStitchProcess:
                 def _status_callback(step: str, msg: str) -> None:
                     status_func(pct, f"Working - [{idx}/{total}] {msg}")
 
-                _run_single_directory(
+                img_count, stage_seconds, retry_count = _run_single_directory(
                     work_dir, snap,
                     psd_first_layer_only=psd_first_layer_only,
                     console_func=console_func,
@@ -588,31 +653,59 @@ class GuiStitchProcess:
 
                 if snap.has_watermark:
                     status_func(pct, f"Working - [{idx}/{total}] Applying watermarks")
+                    stage_start = time()
                     _run_watermark(work_dir.output_path, snap, console_func)
+                    stage_seconds["watermark"] = stage_seconds.get("watermark", 0.0) + (time() - stage_start)
 
                 gc.collect()
 
                 if has_postprocess:
                     status_func(pct, f"Working - [{idx}/{total}] Running post process on output files")
+                    stage_start = time()
                     postprocess_runner.run(
                         workdirectory=work_dir,
                         postprocess_app=snap.postprocess_app,
                         postprocess_args=snap.postprocess_args,
                         console_func=console_func,
                     )
+                    stage_seconds["postprocess"] = stage_seconds.get("postprocess", 0.0) + (time() - stage_start)
                     pct += step_pct["postprocess"] * per_dir
 
                 if run_comiczip:
                     status_func(pct, f"Working - [{idx}/{total}] Running ComicZip on output files")
+                    stage_start = time()
                     postprocess_runner.run(
                         workdirectory=work_dir,
                         postprocess_app="python",
                         postprocess_args=f"{_COMICZIP_SCRIPT} -i [stitched] -o [processed]",
                         console_func=console_func,
                     )
+                    stage_seconds["comiczip"] = stage_seconds.get("comiczip", 0.0) + (time() - stage_start)
+
+                benchmark.add_directory(
+                    input_path=work_dir.input_path,
+                    output_path=work_dir.output_path,
+                    image_count=img_count,
+                    retries=retry_count,
+                    stage_seconds=stage_seconds,
+                    success=True,
+                )
 
             except Exception as exc:
+                benchmark.add_directory(
+                    input_path=work_dir.input_path,
+                    output_path=work_dir.output_path,
+                    image_count=0,
+                    retries=0,
+                    stage_seconds={},
+                    success=False,
+                    error=str(exc),
+                )
                 status_func(int(pct), f"Working - [{idx}/{total}] Failed: {exc}")
                 raise
 
-        status_func(100, f"Idle - Process completed in {time() - start_time:.3f} seconds")
+        elapsed = time() - start_time
+        benchmark_file = benchmark.write_json(file_prefix="benchmark", total_elapsed_s=elapsed)
+        if benchmark_file:
+            console_func(f"Benchmark saved: {benchmark_file}\n")
+        status_func(100, f"Idle - Process completed in {elapsed:.3f} seconds")
