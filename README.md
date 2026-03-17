@@ -1,85 +1,92 @@
 <div align="center">
   <a href="https://github.com/ViminioSM/MedStitch">
-    <img alt="MedStitch Logo" width="200" height="200" src="https://github.com/ViminioSM/MedStitch/raw/dev/assets/SmartStitchLogo.png">
+    <img alt="MedStitch Logo" width="180" src="https://github.com/ViminioSM/MedStitch/raw/dev/assets/SmartStitchLogo.png">
   </a>
+
   <h1>MedStitch</h1>
-  <p>Fast webtoon/manhwa/manhua stitcher and panel slicer for editors and scanlation workflows.</p>
+  <p><strong>Stitch + Slice para webtoon/manhwa/manhua</strong><br/>Rápido, estável e pronto para fluxo de edição.</p>
+
   <p>
-    <a href="https://github.com/ViminioSM/MedStitch/releases/latest"><img src="https://img.shields.io/github/v/release/ViminioSM/MedStitch" alt="Latest Release"></a>
-    <a href="https://github.com/ViminioSM/MedStitch/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/ViminioSM/MedStitch/build.yml" alt="Build Status"></a>
+    <a href="https://github.com/ViminioSM/MedStitch/releases/latest"><img src="https://img.shields.io/github/v/release/ViminioSM/MedStitch?label=release" alt="Latest Release"></a>
+    <a href="https://github.com/ViminioSM/MedStitch/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ViminioSM/MedStitch/ci.yml?label=ci" alt="CI"></a>
+    <a href="https://github.com/ViminioSM/MedStitch/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/ViminioSM/MedStitch/build.yml?label=release" alt="Release Workflow"></a>
     <a href="https://github.com/ViminioSM/MedStitch/releases"><img src="https://img.shields.io/github/downloads/ViminioSM/MedStitch/total" alt="Downloads"></a>
     <a href="https://github.com/ViminioSM/MedStitch/blob/dev/LICENSE"><img src="https://img.shields.io/github/license/ViminioSM/MedStitch" alt="License"></a>
   </p>
 </div>
 
-## Overview
-MedStitch combines multiple source images into long pages and slices them into reader-friendly panels.
+---
 
-Main goals:
-- Preserve quality.
-- Avoid bad cuts through text/art as much as possible.
-- Keep workflow simple and fast.
-- Support both GUI and CLI usage.
+## O que o MedStitch faz
 
-## Current Features
+MedStitch junta múltiplas imagens em páginas longas e depois corta em painéis de leitura.
 
-### GUI
-- Folder-based stitching and slicing.
-- Detector modes:
-  - Smart pixel comparison.
-  - Direct fixed slicing.
-- Output formats: `.png`, `.jpg`, `.webp`, `.bmp`, `.psd`, `.tiff`, `.tga`.
-- Width enforcement modes:
-  - None.
-  - Automatic (smallest width).
-  - Custom width.
-- Settings profiles.
-- Optional post-process command with placeholders:
-  - `[stitched]` for stitched output path.
-  - `[processed]` for post-process output path.
-- Optional ComicZip integration.
-- Windows context menu integration.
-- Built-in update check and compiled-app self-update from GitHub Releases.
+Objetivos do projeto:
+- Preservar qualidade visual.
+- Evitar cortes ruins em texto e arte.
+- Manter fluxo simples para produção.
+- Atender GUI e CLI.
 
-### Watermark System
-- Full-page watermark mode for uniform blocks.
-- Overlay watermark mode with position/opacity/scale controls.
-- Header and footer image insertion.
-- Context-menu quick toggle for watermark state (with state restore behavior).
+## Destaques
 
-### Console
-- CLI pipeline for batch/headless processing.
-- Core detector and slicing options available through arguments.
+### Interface GUI
+- Stitch/slice por pasta.
+- Detectores:
+  - Pixel comparison (smart).
+  - Direct slicing.
+- Formatos de saída: .png, .jpg, .webp, .bmp, .psd, .tiff, .tga.
+- Enforce de largura: none, automático, customizado.
+- Perfis e persistência de configurações.
+- Pós-processamento com placeholders [stitched] e [processed].
+- Integração opcional com ComicZip.
+- Menu de contexto no Windows.
+- Checagem de update e auto-update para app compilado.
 
-## Quick Start (Windows, GUI)
-1. Download latest release from GitHub Releases.
-2. Extract the package.
-3. Run `SmartStitch.exe`.
-4. Set input folder.
-5. Adjust output/detector settings if needed.
-6. Click start.
+### Sistema de Watermark
+- Fullpage watermark em blocos uniformes.
+- Overlay watermark com posição/opacidade/escala.
+- Inserção de header e footer.
+- Toggle rápido via menu de contexto.
 
-## Quick Start (Source)
-1. Install Python 3.11+.
-2. Install dependencies:
+### Console (CLI)
+- Pipeline para batch/headless.
+- Opções principais de detector/corte via argumentos.
+
+---
+
+## Começando rápido
+
+### Windows (release)
+1. Baixe a versão mais recente em Releases.
+2. Extraia o pacote.
+3. Execute SmartStitch.exe.
+4. Escolha a pasta de entrada.
+5. Ajuste detector/saída.
+6. Inicie o processamento.
+
+### Rodando via código-fonte
+1. Instale Python 3.11+.
+2. Instale dependências.
 
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Run GUI:
+3. Rode GUI.
 
 ```bash
 python SmartStitchGUI.py
 ```
 
-4. Or run Console:
+4. Ou rode CLI.
 
 ```bash
 python SmartStitchConsole.py -i "./chapter" -sh 7500 -t .png
 ```
 
-## Console Usage
+---
+
+## CLI (resumo)
 
 ```text
 python SmartStitchConsole.py [-h] -i INPUT_FOLDER -sh SPLIT_HEIGHT
@@ -92,78 +99,93 @@ python SmartStitchConsole.py [-h] -i INPUT_FOLDER -sh SPLIT_HEIGHT
                              [-sl [1-100]]
 ```
 
-## Build Your Own GUI Package
+---
+
+## Build local
 
 ```bash
 python -m scripts.build
 ```
 
-Build output:
-- `dist/SmartStitch/SmartStitch.exe`
+Saída esperada:
+- dist/SmartStitch/SmartStitch.exe
 
-## Automatic Update Flow
-The app checks latest release from:
-- `https://api.github.com/repos/ViminioSM/MedStitch/releases/latest`
+---
 
-Update behavior:
-- Compares local app version with release tag.
-- If newer tag exists, compiled app can download/extract ZIP update and restart.
+## Atualização automática no app
 
-Important:
-- Release tags must use `v*` format (example: `v3.2.0`).
-- Release must include a `.zip` asset.
+Endpoint usado:
+- https://api.github.com/repos/ViminioSM/MedStitch/releases/latest
 
-## GitHub Actions Release Pipeline
-Workflow file: `.github/workflows/build.yml`
-Auto-tag workflow: `.github/workflows/auto-tag.yml`
+Comportamento:
+- Compara versão local com tag da release.
+- Se houver versão mais nova, o app compilado pode baixar ZIP, aplicar update e reiniciar.
 
-Triggers:
-- Push to `dev` or `main` (build artifact only).
-- Push tag `v*` (build + publish release).
-- Push to `dev` or `main` with version in commit title (auto-tag creates `vX.Y.Z`).
+Requisitos:
+- Tags no formato vX.Y.Z.
+- Release com asset .zip.
 
-Release output asset name:
-- `MedStitch-vX.Y.Z-windows.zip`
+---
 
-## Deploying a New Auto-Update Release
-1. Commit and push your changes.
-2. Put version in the commit title (example: `3.2.0` or `release v3.2.0`).
-3. Push to `main` or `dev`.
-4. Auto-tag workflow creates `v3.2.0` if it does not exist.
-5. Build workflow publishes the GitHub Release automatically.
+## Pipeline GitHub Actions
+
+Workflows:
+- .github/workflows/ci.yml
+- .github/workflows/auto-tag.yml
+- .github/workflows/build.yml
+
+Fluxo:
+1. Push em dev/main dispara CI (build de validação).
+2. Se o título do commit tiver versão semântica, auto-tag cria vX.Y.Z.
+3. Auto-tag dispara workflow de release.
+4. Release workflow compila + publica a release com ZIP.
+
+Nome do asset:
+- MedStitch-vX.Y.Z-windows.zip
+
+Exemplo de deploy:
 
 ```bash
 git commit -m "3.2.0"
 git push origin main
 ```
 
-6. Confirm GitHub Release was created with ZIP asset.
-7. In app, click update check (or restart if auto-check enabled).
+---
 
-## Project Structure (high level)
-- `gui/`: UI, controller, process orchestration.
-- `console/`: CLI launcher and process flow.
-- `core/detectors/`: slicing detectors.
-- `core/services/`: image IO, manipulation, settings, watermark, post-process.
-- `core/models/`: settings and work directory models.
-- `scripts/`: build and helper scripts.
+## Estrutura do projeto
+
+- gui/: interface, controller e orquestração.
+- console/: launcher e fluxo CLI.
+- core/detectors/: detectores de corte.
+- core/services/: image IO, manipulação, watermark, postprocess, settings.
+- core/models/: modelos de configuração e work directory.
+- scripts/: build e utilitários.
+
+---
 
 ## Troubleshooting
-- If context menu entries are duplicated:
-  - Remove context menu from app.
-  - Install context menu again.
-- If update check fails:
-  - Verify internet access and GitHub availability.
-  - Confirm latest release has valid tag and `.zip` asset.
-- If post-process fails:
-  - Ensure executable path is valid or command exists in PATH.
 
-## Reporting Issues
-Open an issue with:
-- What you tried.
-- Expected vs actual behavior.
-- Logs from `__logs__` folder.
-- Sample command/settings used.
+- Menu de contexto duplicado:
+  - Remova pelo app.
+  - Instale novamente.
+- Update não encontrado:
+  - Verifique internet/acesso ao GitHub.
+  - Confirme tag válida e ZIP na release.
+- Pós-processamento falhando:
+  - Verifique caminho do executável e argumentos.
 
-## License
-This project is licensed under the terms of the LICENSE file in this repository.
+---
+
+## Reportando problemas
+
+Ao abrir issue, inclua:
+- Passos executados.
+- Comportamento esperado vs atual.
+- Logs da pasta __logs__.
+- Comando ou configuração usada.
+
+---
+
+## Licença
+
+Projeto distribuído sob os termos do arquivo LICENSE.
