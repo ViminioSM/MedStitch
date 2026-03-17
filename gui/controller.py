@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 import zipfile
 import winreg
@@ -844,20 +845,31 @@ def _run_external_updater(*, staged_dir: str, payload_dir: str, app_dir: str, ex
         f"set PAYLOAD_DIR={payload_dir}",
         f"set APP_DIR={app_dir}",
         f"set EXE_NAME={exe_name}",
+        "echo Aguardando app fechar...",
         ":wait_loop",
         'tasklist /FI "PID eq %TARGET_PID%" | findstr /I "%TARGET_PID%" >nul',
         "if %ERRORLEVEL%==0 (",
         "  timeout /t 1 /nobreak >nul",
         "  goto wait_loop",
         ")",
-        'robocopy "%PAYLOAD_DIR%" "%APP_DIR%" /E /R:5 /W:1 /NFL /NDL /NJH /NJS >nul',
-        "if %ERRORLEVEL% GEQ 8 goto start_old",
-        'if exist "%APP_DIR%\\%EXE_NAME%" start "" "%APP_DIR%\\%EXE_NAME%"',
+        "echo Aplicando arquivos de atualizacao...",
+        'robocopy "%PAYLOAD_DIR%" "%APP_DIR%" /E /R:10 /W:2 /NP',
+        "if %ERRORLEVEL% GEQ 8 (",
+        "  echo Erro ao copiar arquivos. Iniciando versao anterior...",
+        "  goto start_old",
+        ")",
+        "echo Atualizacao concluida! Iniciando novo version...",
+        'if exist "%APP_DIR%\\%EXE_NAME%" (',
+        '  start \"\" \"%APP_DIR%\\%EXE_NAME%\"',
+        ")",
         "goto cleanup",
         ":start_old",
         'if exist "%APP_DIR%\\%EXE_NAME%" start "" "%APP_DIR%\\%EXE_NAME%"',
         ":cleanup",
-        'start "" /b cmd /c "timeout /t 6 /nobreak >nul & rmdir /s /q \"%STAGED_DIR%\""',
+        "echo Limpando arquivos temporarios...",
+        'timeout /t 2 /nobreak >nul',
+        'rmdir /s /q "%STAGED_DIR%" 2>nul',
+        "echo Atualizacao finalizada.",
     ]
     with open(updater_cmd, "w", encoding="utf-8", newline="\r\n") as f:
         f.write("\r\n".join(lines) + "\r\n")
@@ -889,11 +901,12 @@ def _self_update_from_release(release_data: dict) -> tuple[bool, str]:
     zip_path = os.path.join(update_root, "update.zip")
     exe_name = os.path.basename(exe_path)
 
-    progress = QProgressDialog("Baixando atualizacao...", "Cancelar", 0, 1000, _main_window)
-    progress.setWindowTitle("Atualizacao")
+    progress = QProgressDialog("Baixando atualizacao...", "", 0, 1000, _main_window)
+    progress.setWindowTitle("Atualizacao - Disponivel")
     progress.setWindowModality(Qt.WindowModality.WindowModal)
     progress.setAutoClose(False)
     progress.setMinimumDuration(0)
+    progress.setCancelButton(None)
     progress.show()
 
     def _on_progress(received: int, total: int) -> None:
@@ -909,8 +922,6 @@ def _self_update_from_release(release_data: dict) -> tuple[bool, str]:
             progress.setLabelText("Baixando atualizacao...")
 
         QApplication.processEvents()
-        if progress.wasCanceled():
-            raise RuntimeError("Atualizacao cancelada pelo usuario.")
 
     try:
         _download_file(asset_url, zip_path, progress_callback=_on_progress)
@@ -943,7 +954,7 @@ def _self_update_from_release(release_data: dict) -> tuple[bool, str]:
         app_dir=app_dir,
         exe_name=exe_name,
     )
-    return True, "Atualizacao baixada. O app sera reiniciado com a nova versao."
+    return True, "Atualizacao iniciada. Aplicando arquivos..."
 
 
 def _check_for_updates(*, silent_if_latest: bool = False, auto_update: bool = False) -> None:
@@ -968,7 +979,8 @@ def _check_for_updates(*, silent_if_latest: bool = False, auto_update: bool = Fa
             ok, message = _self_update_from_release(latest_release)
             if ok:
                 QMessageBox.information(_main_window, "Atualizacao automatica", message)
-                QTimer.singleShot(250, QApplication.quit)
+                time.sleep(0.5)
+                sys.exit(0)
             elif not silent_if_latest:
                 QMessageBox.warning(_main_window, "Atualizacao", message)
             return
@@ -976,20 +988,22 @@ def _check_for_updates(*, silent_if_latest: bool = False, auto_update: bool = Fa
         answer = QMessageBox.question(
             _main_window,
             "Atualizacao disponivel",
-            "Nova versao encontrada!\n\n"
+            "Nova versao encontrada e sera instalada!\n\n"
             f"Atual: {APP_VERSION}\n"
             f"Disponivel: {latest_tag or latest_name}\n\n"
-            "Deseja baixar e aplicar a atualizacao agora?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            "Clique em sim para continuar.",
+            QMessageBox.StandardButton.Yes,
             QMessageBox.StandardButton.Yes,
         )
-        if answer == QMessageBox.StandardButton.Yes:
-            ok, message = _self_update_from_release(latest_release)
-            if ok:
-                QMessageBox.information(_main_window, "Atualizacao", message)
-                QTimer.singleShot(250, QApplication.quit)
-            else:
-                QMessageBox.warning(_main_window, "Atualizacao", message)
+        ok, message = _self_update_from_release(latest_release)
+        if ok:
+            QMessageBox.information(_main_window, "Atualizacao", message)
+            time.sleep(0.5)
+            sys.exit(0)
+        else:
+            QMessageBox.critical(_main_window, "Erro na atualizacao", message)
+            time.sleep(0.5)
+            sys.exit(1)
         return
 
     if silent_if_latest:
