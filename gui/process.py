@@ -147,8 +147,28 @@ def _parse_paths(raw: str) -> list[str]:
     return [p.strip() for p in raw.split(";") if p.strip() and os.path.isfile(p.strip())]
 
 
-def _run_watermark(output_dir: str, snap: _SettingsSnapshot, console_func: ConsoleFunc = print) -> None:
-    """Apply watermarks to all images in *output_dir* based on snapshot settings."""
+def _run_watermark(
+    output_dir: str,
+    snap: _SettingsSnapshot,
+    console_func: ConsoleFunc = print,
+) -> tuple[dict[str, float], dict[str, int | bool]]:
+    """Apply watermarks and return detailed timing metrics for benchmarking."""
+    wm_stage_seconds: dict[str, float] = {
+        "watermark_prepare_assets": 0.0,
+        "watermark_apply_images": 0.0,
+        "watermark_release_assets": 0.0,
+        "watermark_total": 0.0,
+    }
+    wm_details: dict[str, int | bool] = {
+        "fullpage_active": False,
+        "overlay_active": False,
+        "header_active": False,
+        "footer_active": False,
+        "fullpage_assets": 0,
+        "overlay_assets": 0,
+        "header_assets": 0,
+        "footer_assets": 0,
+    }
     _wm_run_log(
         console_func,
         "Snapshot flags: "
@@ -168,13 +188,23 @@ def _run_watermark(output_dir: str, snap: _SettingsSnapshot, console_func: Conso
 
     if not snap.has_watermark:
         _wm_run_log(console_func, "Skipping watermark step: has_watermark=False")
-        return
+        return wm_stage_seconds, wm_details
 
+    prep_started = time()
     wm_service = WatermarkService()
     v1_paths = _parse_paths(snap.watermark_fullpage_paths) if snap.watermark_fullpage_enabled else []
     v2_paths = _parse_paths(snap.watermark_overlay_paths) if snap.watermark_overlay_enabled else []
     header_paths = _parse_paths(snap.watermark_header_paths) if snap.watermark_header_enabled else []
     footer_paths = _parse_paths(snap.watermark_footer_paths) if snap.watermark_footer_enabled else []
+
+    wm_details["fullpage_active"] = bool(snap.watermark_fullpage_enabled and v1_paths)
+    wm_details["overlay_active"] = bool(snap.watermark_overlay_enabled and v2_paths)
+    wm_details["header_active"] = bool(snap.watermark_header_enabled and header_paths)
+    wm_details["footer_active"] = bool(snap.watermark_footer_enabled and footer_paths)
+    wm_details["fullpage_assets"] = len(v1_paths)
+    wm_details["overlay_assets"] = len(v2_paths)
+    wm_details["header_assets"] = len(header_paths)
+    wm_details["footer_assets"] = len(footer_paths)
 
     _wm_run_log(
         console_func,
@@ -199,6 +229,7 @@ def _run_watermark(output_dir: str, snap: _SettingsSnapshot, console_func: Conso
         wm_service.load_watermarks(v1_paths, v2_paths)
     else:
         _wm_run_log(console_func, "No fullpage/overlay files loaded into WatermarkService.")
+    wm_stage_seconds["watermark_prepare_assets"] = time() - prep_started
 
     wm_settings = {
         "lossy_quality": snap.lossy_quality,
@@ -230,10 +261,21 @@ def _run_watermark(output_dir: str, snap: _SettingsSnapshot, console_func: Conso
 
     console_func("Applying watermarks...\n")
     try:
+        apply_started = time()
         wm_service.process_chapter_folder(output_dir, wm_settings)
+        wm_stage_seconds["watermark_apply_images"] = time() - apply_started
     finally:
+        release_started = time()
         wm_service.close_watermarks()
+        wm_stage_seconds["watermark_release_assets"] = time() - release_started
+
+    wm_stage_seconds["watermark_total"] = (
+        wm_stage_seconds["watermark_prepare_assets"]
+        + wm_stage_seconds["watermark_apply_images"]
+        + wm_stage_seconds["watermark_release_assets"]
+    )
     console_func("Watermarks applied.\n")
+    return wm_stage_seconds, wm_details
 
 
 def _run_single_directory(
@@ -372,11 +414,22 @@ def _run_pipeline(
     run_comiczip: bool,
     max_workers: int | None = None,
     console_func: ConsoleFunc = print,
-) -> tuple[int, dict[str, float], int]:
+) -> tuple[int, dict[str, float], int, dict[str, int | bool]]:
     """Run full pipeline for a single directory (used by parallel mode).
 
     Returns the number of output images produced.
     """
+    wm_details: dict[str, int | bool] = {
+        "fullpage_active": False,
+        "overlay_active": False,
+        "header_active": False,
+        "footer_active": False,
+        "fullpage_assets": 0,
+        "overlay_assets": 0,
+        "header_assets": 0,
+        "footer_assets": 0,
+    }
+
     img_count, stage_seconds, retry_count = _run_single_directory(
         work_dir, snap,
         psd_first_layer_only=psd_first_layer_only,
@@ -386,9 +439,9 @@ def _run_pipeline(
     )
 
     if snap.has_watermark:
-        stage_start = time()
-        _run_watermark(work_dir.output_path, snap, console_func)
-        stage_seconds["watermark"] = stage_seconds.get("watermark", 0.0) + (time() - stage_start)
+        wm_stage_seconds, wm_details = _run_watermark(work_dir.output_path, snap, console_func)
+        for key, value in wm_stage_seconds.items():
+            stage_seconds[key] = stage_seconds.get(key, 0.0) + value
 
     postprocess_runner = PostProcessRunner()
     if has_postprocess:
@@ -410,7 +463,7 @@ def _run_pipeline(
         )
         stage_seconds["comiczip"] = stage_seconds.get("comiczip", 0.0) + (time() - stage_start)
 
-    return img_count, stage_seconds, retry_count
+    return img_count, stage_seconds, retry_count, wm_details
 
 
 def _process_work_directory(
@@ -422,7 +475,7 @@ def _process_work_directory(
     disable_postprocess: bool,
     disable_comiczip: bool,
     inner_max_workers: int | None = None,
-) -> tuple[str, int, dict[str, float], int]:
+) -> tuple[str, int, dict[str, float], int, dict[str, int | bool]]:
     """Entry point for parallel (subprocess) execution of a single directory."""
     _wm_run_log(
         print,
@@ -432,7 +485,7 @@ def _process_work_directory(
         f"header_enabled={snap.watermark_header_enabled}, "
         f"footer_enabled={snap.watermark_footer_enabled}"
     )
-    img_count, stage_seconds, retry_count = _run_pipeline(
+    img_count, stage_seconds, retry_count, wm_details = _run_pipeline(
         work_dir,
         snap,
         psd_first_layer_only=psd_first_layer_only,
@@ -441,7 +494,7 @@ def _process_work_directory(
         run_comiczip=snap.run_comiczip and not disable_comiczip,
         max_workers=inner_max_workers,
     )
-    return work_dir.input_path, img_count, stage_seconds, retry_count
+    return work_dir.input_path, img_count, stage_seconds, retry_count, wm_details
 
 
 class GuiStitchProcess:
@@ -578,7 +631,7 @@ class GuiStitchProcess:
             for fut in concurrent.futures.as_completed(futures):
                 work_dir = futures[fut]
                 try:
-                    dir_path, img_count, stage_seconds, retry_count = fut.result()
+                    dir_path, img_count, stage_seconds, retry_count, wm_details = fut.result()
                     completed += 1
                     dirname = os.path.basename(dir_path) or dir_path
                     msg = f"Working - [{completed}/{total}] Done: {dirname} ({img_count} imgs)"
@@ -589,6 +642,7 @@ class GuiStitchProcess:
                         retries=retry_count,
                         stage_seconds=stage_seconds,
                         success=True,
+                        details={"watermark": wm_details},
                     )
                 except Exception as exc:
                     cancel_event.set()
@@ -648,14 +702,24 @@ class GuiStitchProcess:
                     console_func=console_func,
                     status_callback=_status_callback,
                 )
+                wm_details: dict[str, int | bool] = {
+                    "fullpage_active": False,
+                    "overlay_active": False,
+                    "header_active": False,
+                    "footer_active": False,
+                    "fullpage_assets": 0,
+                    "overlay_assets": 0,
+                    "header_assets": 0,
+                    "footer_assets": 0,
+                }
                 pct += (step_pct["load"] + step_pct["combine"] + step_pct["detect"] +
                         step_pct["slice"] + step_pct["save"]) * per_dir
 
                 if snap.has_watermark:
                     status_func(pct, f"Working - [{idx}/{total}] Applying watermarks")
-                    stage_start = time()
-                    _run_watermark(work_dir.output_path, snap, console_func)
-                    stage_seconds["watermark"] = stage_seconds.get("watermark", 0.0) + (time() - stage_start)
+                    wm_stage_seconds, wm_details = _run_watermark(work_dir.output_path, snap, console_func)
+                    for key, value in wm_stage_seconds.items():
+                        stage_seconds[key] = stage_seconds.get(key, 0.0) + value
 
                 gc.collect()
 
@@ -689,6 +753,7 @@ class GuiStitchProcess:
                     retries=retry_count,
                     stage_seconds=stage_seconds,
                     success=True,
+                    details={"watermark": wm_details},
                 )
 
             except Exception as exc:

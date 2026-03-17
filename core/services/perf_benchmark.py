@@ -27,6 +27,22 @@ class PerfBenchmark:
         self._directories: list[dict[str, Any]] = []
         self._metadata = metadata or {}
 
+    @staticmethod
+    def _effective_stage_total(stage_seconds: dict[str, float]) -> float:
+        """Sum stage seconds without double-counting rollup keys like `*_total`."""
+        total = 0.0
+        for stage, seconds in stage_seconds.items():
+            if stage.endswith("_total"):
+                prefix = stage[:-6]
+                has_components = any(
+                    key != stage and key.startswith(f"{prefix}_")
+                    for key in stage_seconds
+                )
+                if has_components:
+                    continue
+            total += float(seconds)
+        return total
+
     def add_directory(
         self,
         *,
@@ -37,6 +53,7 @@ class PerfBenchmark:
         stage_seconds: dict[str, float],
         success: bool,
         error: str | None = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
         if not self.enabled:
             return
@@ -49,13 +66,16 @@ class PerfBenchmark:
             "success": bool(success),
             "error": error,
             "stage_seconds": {k: round(float(v), 6) for k, v in stage_seconds.items()},
-            "directory_total_seconds": round(float(sum(stage_seconds.values())), 6),
+            "directory_total_seconds": round(self._effective_stage_total(stage_seconds), 6),
         }
+        if details:
+            item["details"] = details
         with self._lock:
             self._directories.append(item)
 
     def _build_payload(self, total_elapsed_s: float) -> dict[str, Any]:
         stage_totals: dict[str, float] = {}
+        stage_totals_effective: dict[str, float] = {}
         total_images = 0
         total_retries = 0
         failures = 0
@@ -67,6 +87,16 @@ class PerfBenchmark:
                 failures += 1
             for stage, seconds in directory.get("stage_seconds", {}).items():
                 stage_totals[stage] = stage_totals.get(stage, 0.0) + float(seconds)
+            for stage, seconds in directory.get("stage_seconds", {}).items():
+                if stage.endswith("_total"):
+                    prefix = stage[:-6]
+                    has_components = any(
+                        key != stage and key.startswith(f"{prefix}_")
+                        for key in directory.get("stage_seconds", {})
+                    )
+                    if has_components:
+                        continue
+                stage_totals_effective[stage] = stage_totals_effective.get(stage, 0.0) + float(seconds)
 
         return {
             "version": 1,
@@ -81,6 +111,7 @@ class PerfBenchmark:
             "total_retries": total_retries,
             "images_per_second": round(total_images / total_elapsed_s, 6) if total_elapsed_s > 0 else 0.0,
             "stage_totals_seconds": {k: round(v, 6) for k, v in stage_totals.items()},
+            "stage_totals_effective_seconds": {k: round(v, 6) for k, v in stage_totals_effective.items()},
             "metadata": self._metadata,
             "directories": self._directories,
         }
