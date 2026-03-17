@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (example: v1.2.3)"
+        required: true
+        type: string
 
 concurrency:
   group: build-${{ github.ref }}
@@ -15,6 +21,8 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
 
     steps:
       - name: Checkout
@@ -33,7 +41,7 @@ jobs:
       - name: Generate build version file
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${RELEASE_TAG#v}"
 
           echo "APP_BUILD_VERSION = \"$VERSION\"" > gui/build_version.py
           cat gui/build_version.py
@@ -54,6 +62,8 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
 
     steps:
       - name: Download build artifact
@@ -65,7 +75,7 @@ jobs:
       - name: Package release zip
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}"
+          $version = "${{ env.RELEASE_TAG }}"
           $zipName = "MedStitch-$version-windows.zip"
           if (Test-Path $zipName) { Remove-Item $zipName -Force }
           Compress-Archive -Path "dist/SmartStitch/*" -DestinationPath $zipName -Force
@@ -73,8 +83,9 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: MedStitch ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: MedStitch ${{ env.RELEASE_TAG }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            MedStitch-${{ github.ref_name }}-windows.zip
+            MedStitch-${{ env.RELEASE_TAG }}-windows.zip

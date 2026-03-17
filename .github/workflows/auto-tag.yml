@@ -8,6 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: write
 
 jobs:
@@ -45,6 +46,7 @@ jobs:
           fi
 
       - name: Create and push tag if missing
+        id: tag_push
         if: steps.ver.outputs.should_tag == 'true'
         shell: bash
         run: |
@@ -62,3 +64,10 @@ jobs:
           git tag -a "$TAG" -m "Release $TAG"
           git push origin "$TAG"
           echo "Created tag $TAG"
+
+      - name: Trigger release workflow
+        if: steps.ver.outputs.should_tag == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run build.yml -f tag="${{ steps.ver.outputs.tag }}"
