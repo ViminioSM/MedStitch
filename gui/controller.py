@@ -13,7 +13,7 @@ from typing import Any, Callable
 from PySide6.QtCore import QEvent, QObject, Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtUiTools import QUiLoader
-from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox, QProgressDialog
 
 from assets.SmartStitchLogo import icon
 from core.services import SettingsHandler
@@ -779,7 +779,11 @@ def _pick_release_zip_asset_url(release_data: dict) -> str | None:
     return None
 
 
-def _download_file(url: str, target_path: str) -> None:
+def _download_file(
+    url: str,
+    target_path: str,
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> None:
     request = urllib.request.Request(
         url,
         headers={
@@ -788,11 +792,47 @@ def _download_file(url: str, target_path: str) -> None:
         },
     )
     with urllib.request.urlopen(request, timeout=60) as response:
+        total_bytes = 0
+        content_length = response.headers.get("Content-Length")
+        if content_length:
+            try:
+                total_bytes = int(content_length)
+            except (TypeError, ValueError):
+                total_bytes = 0
+
+        bytes_read = 0
         with open(target_path, "wb") as out:
-            shutil.copyfileobj(response, out)
+            while True:
+                chunk = response.read(1024 * 256)
+                if not chunk:
+                    break
+                out.write(chunk)
+                bytes_read += len(chunk)
+                if progress_callback:
+                    progress_callback(bytes_read, total_bytes)
 
 
-def _run_external_updater(*, staged_dir: str, app_dir: str, exe_path: str) -> None:
+def _resolve_payload_dir(payload_dir: str, exe_name: str) -> str:
+    """Find extracted payload root that actually contains the target executable."""
+    direct_exe = os.path.join(payload_dir, exe_name)
+    if os.path.isfile(direct_exe):
+        return payload_dir
+
+    candidates: list[tuple[int, str]] = []
+    for root, _, files in os.walk(payload_dir):
+        if exe_name in files:
+            rel = os.path.relpath(root, payload_dir)
+            depth = 0 if rel == "." else rel.count(os.sep) + 1
+            candidates.append((depth, root))
+
+    if not candidates:
+        return payload_dir
+
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
+
+
+def _run_external_updater(*, staged_dir: str, payload_dir: str, app_dir: str, exe_name: str) -> None:
     updater_cmd = os.path.join(staged_dir, "apply_update.cmd")
     current_pid = os.getpid()
 
@@ -800,18 +840,24 @@ def _run_external_updater(*, staged_dir: str, app_dir: str, exe_path: str) -> No
         "@echo off",
         "setlocal",
         f"set TARGET_PID={current_pid}",
-        f"set SOURCE_DIR={staged_dir}",
+        f"set STAGED_DIR={staged_dir}",
+        f"set PAYLOAD_DIR={payload_dir}",
         f"set APP_DIR={app_dir}",
-        f"set EXE_PATH={exe_path}",
+        f"set EXE_NAME={exe_name}",
         ":wait_loop",
         'tasklist /FI "PID eq %TARGET_PID%" | findstr /I "%TARGET_PID%" >nul',
         "if %ERRORLEVEL%==0 (",
         "  timeout /t 1 /nobreak >nul",
         "  goto wait_loop",
         ")",
-        'robocopy "%SOURCE_DIR%\\payload" "%APP_DIR%" /E /R:3 /W:1 /NFL /NDL /NJH /NJS >nul',
-        'start "" "%EXE_PATH%"',
-        'start "" /b cmd /c "timeout /t 4 /nobreak >nul & rmdir /s /q \"%SOURCE_DIR%\""',
+        'robocopy "%PAYLOAD_DIR%" "%APP_DIR%" /E /R:5 /W:1 /NFL /NDL /NJH /NJS >nul',
+        "if %ERRORLEVEL% GEQ 8 goto start_old",
+        'if exist "%APP_DIR%\\%EXE_NAME%" start "" "%APP_DIR%\\%EXE_NAME%"',
+        "goto cleanup",
+        ":start_old",
+        'if exist "%APP_DIR%\\%EXE_NAME%" start "" "%APP_DIR%\\%EXE_NAME%"',
+        ":cleanup",
+        'start "" /b cmd /c "timeout /t 6 /nobreak >nul & rmdir /s /q \"%STAGED_DIR%\""',
     ]
     with open(updater_cmd, "w", encoding="utf-8", newline="\r\n") as f:
         f.write("\r\n".join(lines) + "\r\n")
@@ -841,16 +887,62 @@ def _self_update_from_release(release_data: dict) -> tuple[bool, str]:
     payload_dir = os.path.join(update_root, "payload")
     os.makedirs(payload_dir, exist_ok=True)
     zip_path = os.path.join(update_root, "update.zip")
+    exe_name = os.path.basename(exe_path)
+
+    progress = QProgressDialog("Baixando atualizacao...", "Cancelar", 0, 1000, _main_window)
+    progress.setWindowTitle("Atualizacao")
+    progress.setWindowModality(Qt.WindowModality.WindowModal)
+    progress.setAutoClose(False)
+    progress.setMinimumDuration(0)
+    progress.show()
+
+    def _on_progress(received: int, total: int) -> None:
+        if total > 0:
+            scaled = int((received / total) * 1000)
+            progress.setRange(0, 1000)
+            progress.setValue(min(1000, scaled))
+            progress.setLabelText(
+                f"Baixando atualizacao... {received // (1024 * 1024)}MB / {total // (1024 * 1024)}MB"
+            )
+        else:
+            progress.setRange(0, 0)
+            progress.setLabelText("Baixando atualizacao...")
+
+        QApplication.processEvents()
+        if progress.wasCanceled():
+            raise RuntimeError("Atualizacao cancelada pelo usuario.")
 
     try:
-        _download_file(asset_url, zip_path)
+        _download_file(asset_url, zip_path, progress_callback=_on_progress)
+
+        progress.setRange(0, 1000)
+        progress.setValue(1000)
+        progress.setLabelText("Extraindo pacote de atualizacao...")
+        QApplication.processEvents()
+
         with zipfile.ZipFile(zip_path, "r") as zf:
             zf.extractall(payload_dir)
+
+        resolved_payload = _resolve_payload_dir(payload_dir, exe_name)
+        if not os.path.isfile(os.path.join(resolved_payload, exe_name)):
+            raise FileNotFoundError(
+                f"Executavel '{exe_name}' nao encontrado no pacote de atualizacao."
+            )
     except Exception as exc:
+        progress.close()
         shutil.rmtree(update_root, ignore_errors=True)
         return False, f"Falha ao baixar/extrair a atualizacao: {exc}"
 
-    _run_external_updater(staged_dir=update_root, app_dir=app_dir, exe_path=exe_path)
+    progress.setLabelText("Atualizacao pronta. Reiniciando app...")
+    QApplication.processEvents()
+    progress.close()
+
+    _run_external_updater(
+        staged_dir=update_root,
+        payload_dir=resolved_payload,
+        app_dir=app_dir,
+        exe_name=exe_name,
+    )
     return True, "Atualizacao baixada. O app sera reiniciado com a nova versao."
 
 
