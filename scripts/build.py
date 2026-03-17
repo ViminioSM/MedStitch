@@ -44,6 +44,26 @@ def main() -> None:
     if ui_path.exists():
         add_data_args.extend(["--add-data", f"{ui_path};gui"])
 
+    # Exclude large optional dependencies that may exist in the local Python env.
+    # SmartStitch does not require these to run, but PyInstaller can still pick
+    # them up via transitive hooks when they're installed.
+    exclude_modules = [
+        "torch",
+        "torchvision",
+        "cv2",
+        "opencv_python",
+        "scipy",
+        "sklearn",
+        "transformers",
+        "tokenizers",
+        "sentencepiece",
+        "fugashi",
+        "manga_ocr",
+        "onnxruntime",
+        "tensorflow",
+        "jax",
+    ]
+
     args: list[str] = [
         str(gui_entry),
         "--name",
@@ -52,6 +72,8 @@ def main() -> None:
         "--noconsole",
         "--clean",
         "--onedir",
+        "--contents-directory",
+        ".",
         "--distpath",
         str(dist_dir),
         "--workpath",
@@ -61,6 +83,9 @@ def main() -> None:
     ]
 
     args.extend(add_data_args)
+
+    for module_name in exclude_modules:
+        args.extend(["--exclude-module", module_name])
 
     if icon_path.exists():
         args.extend(["--icon", str(icon_path)])

@@ -1,9 +1,11 @@
+"""Image loading and saving with controlled parallelism."""
 import io
 import os
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from multiprocessing import cpu_count
 
 from PIL import Image as pil
+from PIL import UnidentifiedImageError
 from psd_tools import PSDImage
 
 from ..models import WorkDirectory
@@ -11,53 +13,62 @@ from .global_logger import logFunc
 from ..utils.constants import PHOTOSHOP_FILE_TYPES
 
 
-# Module-level functions for multiprocessing (must be picklable)
-def _load_image_worker(args: tuple) -> bytes:
-    """Worker function to load a single image and return as bytes."""
+_MAX_PIL_IMAGE_DIMENSION = 30000
+# Limit workers to prevent system overload
+_MAX_WORKERS_LIMIT = 4
+_DEFAULT_TIMEOUT_SECONDS = 5  # 5 seconds per operation
+
+
+def _should_fallback_from_jpeg(img: pil.Image) -> bool:
+    return max(img.size) > _MAX_PIL_IMAGE_DIMENSION
+
+
+def _load_image_worker(args: tuple) -> tuple[bool, str, bytes | None, str | None]:
+    """Worker function to load a single image and return (ok, path, bytes, err).
+
+    Must be a module-level function so it is picklable by ProcessPoolExecutor.
+    """
     img_path, psd_first_layer_only = args
     ext = os.path.splitext(img_path)[1].lower()
-    
-    if ext not in PHOTOSHOP_FILE_TYPES:
-        image = pil.open(img_path)
-    else:
-        psd = PSDImage.open(img_path)
-        if psd_first_layer_only and len(psd) > 0:
-            image = psd[0].topil()
+
+    try:
+        if ext not in PHOTOSHOP_FILE_TYPES:
+            image = pil.open(img_path)
+            image.load()
         else:
-            image = psd.topil()
-    
-    # Convert to RGB if necessary and serialize to bytes
-    if image.mode not in ('RGB', 'RGBA'):
-        image = image.convert('RGB')
-    
-    buffer = io.BytesIO()
-    image.save(buffer, format='PNG')
-    return buffer.getvalue()
+            psd = PSDImage.open(img_path)
+            if psd_first_layer_only and len(psd) > 0:
+                image = psd[0].topil()
+            else:
+                image = psd.topil()
 
+        if image is None:
+            raise ValueError(f"Unable to decode image: {img_path}")
 
-def _save_image_worker(args: tuple) -> str:
-    """Worker function to save a single image from bytes."""
-    img_bytes, full_path, img_format, quality = args
-    
-    image = pil.open(io.BytesIO(img_bytes))
-    
-    if img_format in PHOTOSHOP_FILE_TYPES:
-        psd_obj = PSDImage.frompil(image)
-        psd_obj.save(full_path)
-    else:
-        image.save(full_path, quality=quality)
-    image.close()
-    
-    return os.path.basename(full_path)
+        if image.mode not in ("RGB", "RGBA"):
+            image = image.convert("RGB")
+
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        try:
+            image.close()
+        except Exception:
+            pass
+        return True, img_path, buf.getvalue(), None
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        return False, img_path, None, str(exc)
+    except Exception as exc:
+        return False, img_path, None, repr(exc)
 
 
 class ImageHandler:
-    def __init__(self, max_workers: int = None):
-        """Initialize ImageHandler with optional max_workers for multiprocessing.
-        
-        If max_workers is None, uses CPU count.
-        """
-        self.max_workers = max_workers or cpu_count()
+    """Handles image loading and saving with controlled parallelism."""
+
+    def __init__(self, max_workers: int | None = None) -> None:
+        # Limit workers to prevent system overload
+        cpu = cpu_count() or 2
+        default_workers = min(cpu, _MAX_WORKERS_LIMIT)
+        self.max_workers = min(max_workers or default_workers, _MAX_WORKERS_LIMIT)
 
     @logFunc(inclass=True)
     def load(
@@ -65,103 +76,155 @@ class ImageHandler:
         workdirectory: WorkDirectory,
         psd_first_layer_only: bool = False,
     ) -> list[pil.Image]:
-        """Loads all image files in a given work into a list of PIL image objects.
+        """Load all images in *workdirectory* using threads (safer than processes).
 
-        When *psd_first_layer_only* is True and the input file is a PSD/PSB,
-        only the first layer (usually the background) is rendered instead of the
-        full composited image.
-        
-        Uses multiprocessing for true parallel loading across CPU cores.
+        Uses ThreadPoolExecutor instead of ProcessPoolExecutor to avoid:
+        - Excessive memory usage from serialization
+        - Process spawning overhead
+        - System instability from too many processes
+
+        Raises RuntimeError if any file is invalid/corrupted.
         """
-        input_files = workdirectory.input_files
         img_paths = [
-            os.path.join(workdirectory.input_path, imgFile)
-            for imgFile in input_files
+            os.path.join(workdirectory.input_path, f)
+            for f in workdirectory.input_files
         ]
-        
-        # Prepare arguments for worker
-        args_list = [(path, psd_first_layer_only) for path in img_paths]
-        
-        # Use ProcessPoolExecutor for true parallelism
-        img_bytes_list = [None] * len(img_paths)
-        with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-            future_to_index = {
-                executor.submit(_load_image_worker, args): idx
-                for idx, args in enumerate(args_list)
-            }
-            for future in as_completed(future_to_index):
-                idx = future_to_index[future]
-                img_bytes_list[idx] = future.result()
-        
-        # Convert bytes back to PIL Images in main process
-        img_objs = [
-            pil.open(io.BytesIO(img_bytes)) for img_bytes in img_bytes_list
-        ]
-        
-        return img_objs
+
+        images: list[pil.Image | None] = [None] * len(img_paths)
+        errors: list[str] = []
+
+        def _load_single(idx: int, path: str) -> None:
+            """Load a single image in thread."""
+            ext = os.path.splitext(path)[1].lower()
+            try:
+                if ext not in PHOTOSHOP_FILE_TYPES:
+                    image = pil.open(path)
+                    image.load()  # Force load into memory
+                else:
+                    psd = PSDImage.open(path)
+                    if psd_first_layer_only and len(psd) > 0:
+                        image = psd[0].topil()
+                    else:
+                        image = psd.topil()
+
+                if image is None:
+                    raise ValueError(f"Unable to decode image: {path}")
+
+                if image.mode not in ("RGB", "RGBA"):
+                    image = image.convert("RGB")
+
+                images[idx] = image
+            except (UnidentifiedImageError, OSError, ValueError) as exc:
+                errors.append(f"{path}: {exc}")
+            except Exception as exc:
+                errors.append(f"{path}: {repr(exc)}")
+
+        # Use threads instead of processes - safer and sufficient for I/O
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = [
+                executor.submit(_load_single, i, p)
+                for i, p in enumerate(img_paths)
+            ]
+            for fut in as_completed(futures):
+                try:
+                    fut.result(timeout=_DEFAULT_TIMEOUT_SECONDS)
+                except Exception as exc:
+                    errors.append(f"Load timeout or error: {exc}")
+
+        if errors:
+            # Close any successfully loaded images before raising
+            for img in images:
+                if img is not None:
+                    try:
+                        img.close()
+                    except Exception:
+                        pass
+            raise RuntimeError(
+                "Invalid/corrupted image detected. Folder processing aborted.\n"
+                + "\n".join(errors[:10])
+            )
+
+        valid = [img for img in images if img is not None]
+        if not valid:
+            raise RuntimeError("No valid images could be decoded in this folder.")
+
+        return valid
 
     @logFunc(inclass=True)
     def save(
         self,
         workdirectory: WorkDirectory,
         img_obj: pil.Image,
-        img_iteration: 1,
-        img_format: str = '.png',
-        quality=100,
+        img_iteration: int = 1,
+        img_format: str = ".png",
+        quality: int = 100,
     ) -> str:
-        if not os.path.exists(workdirectory.output_path):
-            os.makedirs(workdirectory.output_path)
-        img_file_name = str(f'{img_iteration:02}') + img_format
-        full_path = os.path.join(workdirectory.output_path, img_file_name)
-        
-        if img_format in PHOTOSHOP_FILE_TYPES:
-            psd_obj = PSDImage.frompil(img_obj)
-            psd_obj.save(full_path)
+        os.makedirs(workdirectory.output_path, exist_ok=True)
+        effective_format = img_format
+        if img_format.lower() in (".jpg", ".jpeg") and _should_fallback_from_jpeg(img_obj):
+            effective_format = ".png"
+
+        file_name = f"{img_iteration:02}{effective_format}"
+        full_path = os.path.join(workdirectory.output_path, file_name)
+
+        if effective_format in PHOTOSHOP_FILE_TYPES:
+            PSDImage.frompil(img_obj).save(full_path)
         else:
-            img_obj.save(full_path, quality=quality)
+            if effective_format.lower() in (".jpg", ".jpeg"):
+                img_obj.save(full_path, quality=quality, subsampling=0)
+            elif effective_format.lower() == ".webp":
+                img_obj.save(full_path, quality=quality, method=4)
+            elif effective_format.lower() == ".png":
+                img_obj.save(full_path, compress_level=0)
+            else:
+                img_obj.save(full_path)
             img_obj.close()
-        
-        workdirectory.output_files.append(img_file_name)
-        return img_file_name
+
+        workdirectory.output_files.append(file_name)
+        return file_name
 
     def save_all(
         self,
         workdirectory: WorkDirectory,
         img_objs: list[pil.Image],
-        img_format: str = '.png',
-        quality=100,
+        img_format: str = ".png",
+        quality: int = 100,
     ) -> WorkDirectory:
-        """Save all images using multiprocessing for true parallel writes."""
-        if not os.path.exists(workdirectory.output_path):
-            os.makedirs(workdirectory.output_path)
-        
-        # Prepare file names and paths
-        file_names = [
-            str(f'{i+1:02}') + img_format for i in range(len(img_objs))
+        """Save all images using threads (I/O-bound, no serialization overhead)."""
+        os.makedirs(workdirectory.output_path, exist_ok=True)
+
+        def _effective_format_for(img: pil.Image) -> str:
+            if img_format.lower() in (".jpg", ".jpeg") and _should_fallback_from_jpeg(img):
+                return ".png"
+            return img_format
+
+        file_names: list[str] = [
+            f"{i + 1:02}{_effective_format_for(img)}" for i, img in enumerate(img_objs)
         ]
-        full_paths = [
-            os.path.join(workdirectory.output_path, fn) for fn in file_names
-        ]
-        
-        # Serialize images to bytes for multiprocessing
-        img_bytes_list = []
-        for img in img_objs:
-            buffer = io.BytesIO()
-            img.save(buffer, format='PNG')
-            img_bytes_list.append(buffer.getvalue())
+        full_paths = [os.path.join(workdirectory.output_path, fn) for fn in file_names]
+
+        def _save_one(img: pil.Image, path: str) -> None:
+            ext = os.path.splitext(path)[1].lower()
+            if ext in PHOTOSHOP_FILE_TYPES:
+                PSDImage.frompil(img).save(path)
+            else:
+                if ext in (".jpg", ".jpeg"):
+                    img.save(path, quality=quality, subsampling=0)
+                elif ext == ".webp":
+                    img.save(path, quality=quality, method=4)
+                elif ext == ".png":
+                    img.save(path, compress_level=0)
+                else:
+                    img.save(path)
             img.close()
-        
-        # Prepare arguments for workers
-        args_list = [
-            (img_bytes, full_path, img_format, quality)
-            for img_bytes, full_path in zip(img_bytes_list, full_paths)
-        ]
-        
-        # Use ProcessPoolExecutor for true parallelism
-        with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = [executor.submit(_save_image_worker, args) for args in args_list]
-            for future in as_completed(futures):
-                future.result()  # Raise any exceptions
-        
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = [
+                executor.submit(_save_one, img, path)
+                for img, path in zip(img_objs, full_paths)
+            ]
+            for fut in as_completed(futures):
+                fut.result()
+
         workdirectory.output_files.extend(file_names)
         return workdirectory

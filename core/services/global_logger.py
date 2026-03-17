@@ -8,7 +8,7 @@ from ..utils.constants import LOG_REL_DIR
 
 class GlobalLogger:
     @classmethod
-    def configureGlobalLogger(self):
+    def configureGlobalLogger(cls):
         """Initializes and Configures Logging Service"""
         if not os.path.exists(LOG_REL_DIR):
             os.makedirs(LOG_REL_DIR)
@@ -25,12 +25,12 @@ class GlobalLogger:
         pil_logger.setLevel(logging.INFO)
 
     @classmethod
-    def log_warning(self, message, caller='GlobalLogger', *args, **kwargs):
+    def log_warning(cls, message, caller='GlobalLogger', *args, **kwargs):
         log_msg = f'{caller}:{message}'
         logging.warning(log_msg, *args, **kwargs)
 
     @classmethod
-    def log_debug(self, message, caller='GlobalLogger', *args, **kwargs):
+    def log_debug(cls, message, caller='GlobalLogger', *args, **kwargs):
         log = f'{caller}:{message}'
         logging.debug(log, *args, **kwargs)
 

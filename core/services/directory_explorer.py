@@ -1,3 +1,4 @@
+"""Directory exploration service for finding image directories."""
 import os
 
 from natsort import natsorted
@@ -9,40 +10,71 @@ from .global_logger import logFunc
 
 
 class DirectoryExplorer:
-    def run(self, input, **kwargs):
-        main_directory = self.get_main_directory(input, **kwargs)
-        working_directories = self.explore_directories(main_directory)
-        return working_directories
+    """Explores directories to find image files for processing."""
+
+    def run(
+        self,
+        input: str,
+        *,
+        output: str | None = None,
+        postprocess: str | None = None,
+    ) -> list[WorkDirectory]:
+        """Find all work directories containing images.
+        
+        Args:
+            input: Input directory path
+            output: Optional output directory path
+            postprocess: Optional postprocess directory path
+            
+        Returns:
+            List of WorkDirectory objects with image files
+        """
+        main_directory = self._get_main_directory(input, output, postprocess)
+        return self._explore_directories(main_directory)
 
     @logFunc(inclass=True)
-    def get_main_directory(self, input: str, **kwargs: str) -> WorkDirectory:
-        """Gets the main working directory for a given input path"""
-        if not input:
+    def _get_main_directory(
+        self,
+        input_path: str,
+        output_path: str | None,
+        postprocess_path: str | None,
+    ) -> WorkDirectory:
+        """Create the main WorkDirectory from input paths."""
+        if not input_path:
             raise DirectoryException("Missing Input Directory")
-        input_path = os.path.abspath(input)
-        output_path = kwargs.get('output', input_path + OUTPUT_SUFFIX)
-        postprocess_path = kwargs.get('postprocess', input_path + POSTPROCESS_SUFFIX)
-        return WorkDirectory(input_path, output_path, postprocess_path)
+        
+        abs_input = os.path.abspath(input_path)
+        abs_output = output_path or (abs_input + OUTPUT_SUFFIX)
+        abs_postprocess = postprocess_path or (abs_input + POSTPROCESS_SUFFIX)
+        
+        return WorkDirectory(abs_input, abs_output, abs_postprocess)
 
     @logFunc(inclass=True)
-    def explore_directories(self, main_directory: WorkDirectory) -> list[WorkDirectory]:
-        """Gets all the possible working directories from main paths"""
-        work_directories = []
-        for (dir_root, folders, files) in os.walk(
-            main_directory.input_path, topdown=True
-        ):
-            img_files = []
-            for file in files:
-                if file.lower().endswith(SUPPORTED_IMG_TYPES):
-                    img_files.append(file)
+    def _explore_directories(self, main_dir: WorkDirectory) -> list[WorkDirectory]:
+        """Recursively find all directories containing supported images."""
+        work_directories: list[WorkDirectory] = []
+        
+        for dir_root, _, files in os.walk(main_dir.input_path, topdown=True):
+            img_files = [
+                f for f in files
+                if f.lower().endswith(SUPPORTED_IMG_TYPES)
+            ]
+            
+            if not img_files:
+                continue
+                
             img_files = natsorted(img_files)
-            if img_files:
-                rel_root = os.path.relpath(dir_root, main_directory.input_path)
-                dir_output = os.path.join(main_directory.output_path, rel_root)
-                dir_subprocess = os.path.join(main_directory.postprocess_path, rel_root)
-                directory = WorkDirectory(dir_root, dir_output, dir_subprocess)
-                directory.input_files = img_files
-                work_directories.append(directory)
-        if not (work_directories):
-            raise DirectoryException('No valid work directories were found!')
+            rel_root = os.path.relpath(dir_root, main_dir.input_path)
+            
+            directory = WorkDirectory(
+                input=dir_root,
+                output=os.path.join(main_dir.output_path, rel_root),
+                postprocess=os.path.join(main_dir.postprocess_path, rel_root),
+            )
+            directory.input_files = img_files
+            work_directories.append(directory)
+        
+        if not work_directories:
+            raise DirectoryException("No valid work directories were found!")
+        
         return work_directories

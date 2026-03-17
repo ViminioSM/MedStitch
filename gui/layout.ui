@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>SmartStitch</string>
+    <string>MedStitch</string>
   </property>
   <property name="windowIcon">
    <iconset>
@@ -95,16 +95,6 @@
              </item>
             </layout>
            </item>
-           <item>
-            <widget class="QLabel" name="outputLabel">
-             <property name="text">
-              <string>Output Path</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLineEdit" name="outputField"/>
-           </item>
           </layout>
          </widget>
         </item>
@@ -130,119 +120,22 @@
             <number>6</number>
            </property>
            <item>
-            <layout class="QHBoxLayout" name="horizontalLayout_7" stretch="1,1">
+            <layout class="QHBoxLayout" name="presetButtonsLayout" stretch="1,1">
              <property name="bottomMargin">
               <number>0</number>
              </property>
              <item>
-              <widget class="QWidget" name="outputTypeWrapper" native="true">
-               <layout class="QVBoxLayout" name="verticalLayout_13">
-                <property name="spacing">
-                 <number>4</number>
-                </property>
-                <property name="leftMargin">
-                 <number>0</number>
-                </property>
-                <property name="topMargin">
-                 <number>0</number>
-                </property>
-                <property name="rightMargin">
-                 <number>0</number>
-                </property>
-                <property name="bottomMargin">
-                 <number>0</number>
-                </property>
-                <item>
-                 <widget class="QLabel" name="outputTypeLabel">
-                  <property name="text">
-                   <string>Output File Type</string>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QComboBox" name="outputTypeDropdown">
-                  <property name="maxVisibleItems">
-                   <number>6</number>
-                  </property>
-                  <item>
-                   <property name="text">
-                    <string>.png</string>
-                   </property>
-                  </item>
-                  <item>
-                   <property name="text">
-                    <string>.jpg</string>
-                   </property>
-                  </item>
-                  <item>
-                   <property name="text">
-                    <string>.webp</string>
-                   </property>
-                  </item>
-                  <item>
-                   <property name="text">
-                    <string>.bmp</string>
-                   </property>
-                  </item>
-                  <item>
-                   <property name="text">
-                    <string>.psd</string>
-                   </property>
-                  </item>
-                  <item>
-                   <property name="text">
-                    <string>.tiff</string>
-                   </property>
-                  </item>
-                  <item>
-                   <property name="text">
-                    <string>.tga</string>
-                   </property>
-                  </item>
-                 </widget>
-                </item>
-               </layout>
+              <widget class="QPushButton" name="typeButton">
+               <property name="text">
+                <string>Type (WEBP)</string>
+               </property>
               </widget>
              </item>
              <item>
-              <widget class="QWidget" name="lossyWrapper" native="true">
-               <layout class="QVBoxLayout" name="lossyLayout">
-                <property name="spacing">
-                 <number>4</number>
-                </property>
-                <property name="leftMargin">
-                 <number>0</number>
-                </property>
-                <property name="topMargin">
-                 <number>0</number>
-                </property>
-                <property name="rightMargin">
-                 <number>0</number>
-                </property>
-                <property name="bottomMargin">
-                 <number>0</number>
-                </property>
-                <item>
-                 <widget class="QLabel" name="lossyLabel">
-                  <property name="text">
-                   <string>Lossy File Quality [1-100%]</string>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QSpinBox" name="lossyField">
-                  <property name="minimum">
-                   <number>1</number>
-                  </property>
-                  <property name="maximum">
-                   <number>100</number>
-                  </property>
-                  <property name="value">
-                   <number>1</number>
-                  </property>
-                 </widget>
-                </item>
-               </layout>
+              <widget class="QPushButton" name="redrawButton">
+               <property name="text">
+                <string>Redraw (JPG)</string>
+               </property>
               </widget>
              </item>
             </layout>
@@ -264,98 +157,6 @@
              </property>
             </widget>
            </item>
-           <item>
-            <layout class="QHBoxLayout" name="horizontalLayout_8" stretch="1,1">
-             <property name="bottomMargin">
-              <number>0</number>
-             </property>
-             <item>
-              <widget class="QWidget" name="enforcementWrapper" native="true">
-               <layout class="QVBoxLayout" name="enforcementLayout">
-                <property name="spacing">
-                 <number>4</number>
-                </property>
-                <property name="leftMargin">
-                 <number>0</number>
-                </property>
-                <property name="topMargin">
-                 <number>0</number>
-                </property>
-                <property name="rightMargin">
-                 <number>0</number>
-                </property>
-                <property name="bottomMargin">
-                 <number>0</number>
-                </property>
-                <item>
-                 <widget class="QLabel" name="widthEnforcementLabel">
-                  <property name="text">
-                   <string>Width Enforcement Type</string>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QComboBox" name="widthEnforcementDropdown">
-                  <item>
-                   <property name="text">
-                    <string>No Enforcement</string>
-                   </property>
-                  </item>
-                  <item>
-                   <property name="text">
-                    <string>Automatic Uniform Width</string>
-                   </property>
-                  </item>
-                  <item>
-                   <property name="text">
-                    <string>User Customized Width</string>
-                   </property>
-                  </item>
-                 </widget>
-                </item>
-               </layout>
-              </widget>
-             </item>
-             <item>
-              <widget class="QWidget" name="customWidthWrapper" native="true">
-               <layout class="QVBoxLayout" name="verticalLayout_16">
-                <property name="spacing">
-                 <number>4</number>
-                </property>
-                <property name="leftMargin">
-                 <number>0</number>
-                </property>
-                <property name="topMargin">
-                 <number>0</number>
-                </property>
-                <property name="rightMargin">
-                 <number>0</number>
-                </property>
-                <property name="bottomMargin">
-                 <number>0</number>
-                </property>
-                <item>
-                 <widget class="QLabel" name="customWidthLabel">
-                  <property name="text">
-                   <string>Manual Custom Width [in pixels]</string>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QSpinBox" name="customWidthField">
-                  <property name="minimum">
-                   <number>1</number>
-                  </property>
-                  <property name="maximum">
-                   <number>999999999</number>
-                  </property>
-                 </widget>
-                </item>
-               </layout>
-              </widget>
-             </item>
-            </layout>
-           </item>
           </layout>
          </widget>
         </item>
@@ -374,489 +175,11 @@
         </item>
        </layout>
       </widget>
-      <widget class="QWidget" name="advancedTab">
-       <attribute name="title">
-        <string>Advanced</string>
-       </attribute>
-       <layout class="QVBoxLayout" name="advancedVerticalLayout">
-        <property name="leftMargin">
-         <number>6</number>
-        </property>
-        <property name="topMargin">
-         <number>6</number>
-        </property>
-        <property name="rightMargin">
-         <number>6</number>
-        </property>
-        <property name="bottomMargin">
-         <number>6</number>
-        </property>
-        <item>
-         <widget class="QGroupBox" name="advancedPsdGroupBox">
-          <property name="title">
-           <string>Advanced PSD Merge</string>
-          </property>
-          <layout class="QVBoxLayout" name="advancedGroupLayout">
-           <property name="spacing">
-            <number>4</number>
-           </property>
-           <property name="leftMargin">
-            <number>6</number>
-           </property>
-           <property name="topMargin">
-            <number>6</number>
-           </property>
-           <property name="rightMargin">
-            <number>6</number>
-           </property>
-           <property name="bottomMargin">
-            <number>6</number>
-           </property>
-           <item>
-            <widget class="QLabel" name="advancedSourceTypeLabel">
-             <property name="text">
-              <string>Advanced source type</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QComboBox" name="advancedSourceTypeDropdown">
-             <item>
-              <property name="text">
-               <string>Two folders (Normal + Edited)</string>
-              </property>
-             </item>
-             <item>
-              <property name="text">
-               <string>PSD source (folder of PSDs)</string>
-              </property>
-             </item>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLabel" name="advancedNormalLabel">
-             <property name="text">
-              <string>Normal layer folder</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="advancedNormalLayout" stretch="3,1">
-             <item>
-              <widget class="QLineEdit" name="advancedNormalField"/>
-             </item>
-             <item>
-              <widget class="QPushButton" name="browseAdvancedNormalButton">
-               <property name="text">
-                <string>Browse</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <widget class="QLabel" name="advancedEditedLabel">
-             <property name="text">
-              <string>Edited layer folder</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="advancedEditedLayout" stretch="3,1">
-             <item>
-              <widget class="QLineEdit" name="advancedEditedField"/>
-             </item>
-             <item>
-              <widget class="QPushButton" name="browseAdvancedEditedButton">
-               <property name="text">
-                <string>Browse</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <widget class="QLabel" name="advancedPsdSourceLabel">
-             <property name="text">
-              <string>PSD source folder</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="advancedPsdSourceLayout" stretch="3,1">
-             <item>
-              <widget class="QLineEdit" name="advancedPsdSourceField"/>
-             </item>
-             <item>
-              <widget class="QPushButton" name="browseAdvancedPsdSourceButton">
-               <property name="text">
-                <string>Browse</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <spacer name="advancedVerticalSpacer">
-          <property name="orientation">
-           <enum>Qt::Vertical</enum>
-          </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>20</width>
-            <height>40</height>
-           </size>
-          </property>
-         </spacer>
-        </item>
-       </layout>
-      </widget>
-      <widget class="QWidget" name="detectorTab">
-       <attribute name="title">
-        <string>Detector</string>
-       </attribute>
-       <layout class="QVBoxLayout" name="dverticalLayout_1">
-        <property name="spacing">
-         <number>4</number>
-        </property>
-        <property name="leftMargin">
-         <number>6</number>
-        </property>
-        <property name="topMargin">
-         <number>6</number>
-        </property>
-        <property name="rightMargin">
-         <number>6</number>
-        </property>
-        <property name="bottomMargin">
-         <number>6</number>
-        </property>
-        <item>
-         <widget class="QGroupBox" name="detectorGroupBox">
-          <property name="title">
-           <string>Detector Settings</string>
-          </property>
-          <layout class="QVBoxLayout" name="verticalLayout_6">
-           <property name="spacing">
-            <number>4</number>
-           </property>
-           <property name="leftMargin">
-            <number>6</number>
-           </property>
-           <property name="topMargin">
-            <number>6</number>
-           </property>
-           <property name="rightMargin">
-            <number>6</number>
-           </property>
-           <property name="bottomMargin">
-            <number>6</number>
-           </property>
-           <item>
-            <widget class="QLabel" name="label">
-             <property name="text">
-              <string>Detector Type</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QComboBox" name="detectorTypeDropdown">
-             <property name="currentText">
-              <string>Direct Slicing</string>
-             </property>
-             <item>
-              <property name="text">
-               <string>Direct Slicing</string>
-              </property>
-             </item>
-             <item>
-              <property name="text">
-               <string>Smart Pixel Comparison</string>
-              </property>
-             </item>
-            </widget>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="smartDetectorWrapper" stretch="0,0">
-             <property name="bottomMargin">
-              <number>0</number>
-             </property>
-             <item>
-              <widget class="QWidget" name="detectorSensitvityWrapper" native="true">
-               <layout class="QVBoxLayout" name="detectorSensitvityWrapperL" stretch="0,1">
-                <property name="spacing">
-                 <number>4</number>
-                </property>
-                <property name="leftMargin">
-                 <number>0</number>
-                </property>
-                <property name="topMargin">
-                 <number>0</number>
-                </property>
-                <property name="rightMargin">
-                 <number>0</number>
-                </property>
-                <property name="bottomMargin">
-                 <number>0</number>
-                </property>
-                <item>
-                 <widget class="QLabel" name="detectorSensitivityLabel">
-                  <property name="text">
-                   <string>Object Detection Sensitivity  [1-100%]</string>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QSpinBox" name="detectorSensitivityField">
-                  <property name="minimum">
-                   <number>1</number>
-                  </property>
-                  <property name="maximum">
-                   <number>100</number>
-                  </property>
-                 </widget>
-                </item>
-               </layout>
-              </widget>
-             </item>
-             <item>
-              <widget class="QWidget" name="scanStepWrapper" native="true">
-               <layout class="QVBoxLayout" name="scanLineWrapperL">
-                <property name="spacing">
-                 <number>4</number>
-                </property>
-                <property name="leftMargin">
-                 <number>0</number>
-                </property>
-                <property name="topMargin">
-                 <number>0</number>
-                </property>
-                <property name="rightMargin">
-                 <number>0</number>
-                </property>
-                <property name="bottomMargin">
-                 <number>0</number>
-                </property>
-                <item>
-                 <widget class="QLabel" name="scanStepLabel">
-                  <property name="text">
-                   <string>Scan Line Step [1-25 in pixels]</string>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QSpinBox" name="scanStepField">
-                  <property name="minimum">
-                   <number>1</number>
-                  </property>
-                  <property name="maximum">
-                   <number>25</number>
-                  </property>
-                 </widget>
-                </item>
-               </layout>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <widget class="QWidget" name="ignoreMarginWrapper" native="true">
-             <layout class="QVBoxLayout" name="ignoreMarginWrapperL">
-              <property name="spacing">
-               <number>4</number>
-              </property>
-              <property name="leftMargin">
-               <number>0</number>
-              </property>
-              <property name="topMargin">
-               <number>0</number>
-              </property>
-              <property name="rightMargin">
-               <number>0</number>
-              </property>
-              <property name="bottomMargin">
-               <number>0</number>
-              </property>
-              <item>
-               <widget class="QLabel" name="ignoreMarginLabel">
-                <property name="text">
-                 <string>Ignoreable Horizontal Margins [in pixels]</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QSpinBox" name="ignoreMarginField">
-                <property name="maximum">
-                 <number>999999</number>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="detectorHelpButton">
-             <property name="text">
-              <string>Detector Help</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <spacer name="verticalSpacer_2">
-          <property name="orientation">
-           <enum>Qt::Vertical</enum>
-          </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>20</width>
-            <height>40</height>
-           </size>
-          </property>
-         </spacer>
-        </item>
-       </layout>
-      </widget>
-      <widget class="QWidget" name="profileTab">
-       <attribute name="title">
-        <string>Profile</string>
-       </attribute>
-       <layout class="QVBoxLayout" name="profileVerticalLayout">
-        <property name="spacing">
-         <number>4</number>
-        </property>
-        <property name="leftMargin">
-         <number>6</number>
-        </property>
-        <property name="topMargin">
-         <number>6</number>
-        </property>
-        <property name="rightMargin">
-         <number>6</number>
-        </property>
-        <property name="bottomMargin">
-         <number>6</number>
-        </property>
-        <item>
-         <widget class="QGroupBox" name="profileGroupBox">
-          <property name="title">
-           <string>Configuration Profile Settings</string>
-          </property>
-          <layout class="QVBoxLayout" name="verticalLayout_7">
-           <property name="spacing">
-            <number>4</number>
-           </property>
-           <property name="leftMargin">
-            <number>6</number>
-           </property>
-           <property name="topMargin">
-            <number>6</number>
-           </property>
-           <property name="rightMargin">
-            <number>6</number>
-           </property>
-           <property name="bottomMargin">
-            <number>6</number>
-           </property>
-           <item>
-            <widget class="QLabel" name="currentProfileLabel">
-             <property name="text">
-              <string>Current Profile</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="horizontalLayout_3" stretch="1,0,0">
-             <item>
-              <widget class="QComboBox" name="currentProfileDropdown">
-               <item>
-                <property name="text">
-                 <string>Profile 1</string>
-                </property>
-               </item>
-              </widget>
-             </item>
-             <item>
-              <widget class="QPushButton" name="addProfileButton">
-               <property name="minimumSize">
-                <size>
-                 <width>28</width>
-                 <height>28</height>
-                </size>
-               </property>
-               <property name="maximumSize">
-                <size>
-                 <width>42</width>
-                 <height>28</height>
-                </size>
-               </property>
-               <property name="text">
-                <string>Add</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QPushButton" name="removeProfileButton">
-               <property name="minimumSize">
-                <size>
-                 <width>28</width>
-                 <height>28</height>
-                </size>
-               </property>
-               <property name="maximumSize">
-                <size>
-                 <width>56</width>
-                 <height>28</height>
-                </size>
-               </property>
-               <property name="text">
-                <string>Delete</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <widget class="QLabel" name="currentProfileNameLabel">
-             <property name="text">
-              <string>Current Profile Name</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLineEdit" name="currentProfileName"/>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <spacer name="profileVerticalSpacer">
-          <property name="orientation">
-           <enum>Qt::Vertical</enum>
-          </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>20</width>
-            <height>40</height>
-           </size>
-          </property>
-         </spacer>
-        </item>
-       </layout>
-      </widget>
       <widget class="QWidget" name="postProcessTab">
        <attribute name="title">
         <string>Post Process</string>
        </attribute>
-       <layout class="QVBoxLayout" name="dverticalLayout_1">
-        <property name="spacing">
-         <number>4</number>
-        </property>
+       <layout class="QVBoxLayout" name="postProcessVerticalLayout">
         <property name="leftMargin">
          <number>6</number>
         </property>
@@ -893,56 +216,77 @@
            <item>
             <widget class="QCheckBox" name="runProcessCheckbox">
              <property name="text">
-              <string>Run post process after stitching process is complete</string>
+              <string>Ativar pós-processamento (Waifu2x)</string>
              </property>
             </widget>
            </item>
            <item>
             <widget class="QCheckBox" name="runComicZipCheckbox">
              <property name="text">
-              <string>Run ComicZip after post process (zip stitched output)</string>
+              <string>Zipar após o pós-processamento</string>
              </property>
             </widget>
            </item>
            <item>
-            <widget class="QLabel" name="postProcessAppLabel">
+            <widget class="QCheckBox" name="parallelProcessingCheckbox">
              <property name="text">
-              <string>Post process application path</string>
+              <string>Processar subpastas em paralelo</string>
              </property>
             </widget>
            </item>
            <item>
-            <layout class="QHBoxLayout" name="postProcessExeLayout" stretch="3,1">
+            <layout class="QHBoxLayout" name="waifuButtonsLayout" stretch="1,1">
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
              <item>
-              <widget class="QLineEdit" name="postProcessAppField">
-               <property name="placeholderText">
-                <string>Example: C:/waifu2x/waifu2x.exe</string>
+              <widget class="QPushButton" name="installWaifu2xButton">
+               <property name="text">
+                <string>Instalar Waifu2X</string>
                </property>
               </widget>
              </item>
              <item>
-              <widget class="QPushButton" name="browsePostProcessAppButton">
+              <widget class="QPushButton" name="repairWaifu2xButton">
                <property name="text">
-                <string>Browse</string>
+                <string>Reparar Waifu2X</string>
                </property>
               </widget>
              </item>
             </layout>
            </item>
            <item>
-            <widget class="QLabel" name="postProcessArgsLabel">
-             <property name="text">
-              <string>Post process arguments</string>
+            <layout class="QHBoxLayout" name="contextMenuButtonsLayout" stretch="1,1">
+             <property name="bottomMargin">
+              <number>0</number>
              </property>
-            </widget>
+             <item>
+              <widget class="QPushButton" name="installContextMenuButton">
+               <property name="text">
+                  <string>Adicionar MedStitch ao botão direito</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="removeContextMenuButton">
+               <property name="text">
+                  <string>Remover MedStitch do botão direito</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
            </item>
-           <item>
-            <widget class="QLineEdit" name="postProcessArgsField">
-             <property name="placeholderText">
-              <string>Example: -i [stitched] -o [processed] -n 3 -s 1 -f jpg</string>
-             </property>
-            </widget>
-           </item>
+             <item>
+              <layout class="QHBoxLayout" name="appActionsLayout">
+               <item>
+                <widget class="QPushButton" name="updateAppButton">
+                 <property name="text">
+                  <string>Verificar Atualizacao do App</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
           </layout>
          </widget>
         </item>
@@ -958,6 +302,409 @@
            <bool>true</bool>
           </property>
          </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="watermarkTab">
+       <attribute name="title">
+        <string>Watermark</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="watermarkVerticalLayout">
+        <property name="leftMargin">
+         <number>6</number>
+        </property>
+        <property name="topMargin">
+         <number>6</number>
+        </property>
+        <property name="rightMargin">
+         <number>6</number>
+        </property>
+        <property name="bottomMargin">
+         <number>6</number>
+        </property>
+        <item>
+         <widget class="QGroupBox" name="watermarkFullpageGroupBox">
+          <property name="title">
+           <string>Marca d'água de Página Inteira</string>
+          </property>
+          <layout class="QVBoxLayout" name="wmFullpageLayout">
+           <property name="spacing">
+            <number>4</number>
+           </property>
+           <item>
+            <widget class="QCheckBox" name="watermarkFullpageEnabledCheckbox">
+             <property name="text">
+              <string>Marca d'água de Página Inteira (em blocos uniformes)</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="wmFullpagePathLayout">
+             <item>
+              <widget class="QLineEdit" name="watermarkFullpagePathField">
+               <property name="placeholderText">
+                <string>Imagens de página inteira (separados por ;)</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="browseWatermarkFullpageButton">
+               <property name="text">
+                <string>...</string>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>40</width>
+                 <height>16777215</height>
+                </size>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="wmFullpageThresholdLayout">
+             <item>
+              <widget class="QLabel" name="wmFullpageThresholdLabel">
+               <property name="text">
+                <string>Threshold (uniformidade):</string>
+               </property>
+               <property name="toolTip">
+                <string>Define o quão uniforme uma área precisa ser para receber a marca d'água.
+Valores mais baixos (ex: 150) = aceita áreas com mais variação de cor
+Valores mais altos (ex: 230) = só aceita áreas muito uniformes (quase totalmente brancas/pretas)
+Recomendado: 200</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QSpinBox" name="watermarkFullpageThresholdSpin">
+               <property name="toolTip">
+                <string>Define o quão uniforme uma área precisa ser para receber a marca d'água.
+Valores mais baixos (ex: 150) = aceita áreas com mais variação de cor
+Valores mais altos (ex: 230) = só aceita áreas muito uniformes (quase totalmente brancas/pretas)
+Recomendado: 200</string>
+               </property>
+               <property name="minimum">
+                <number>0</number>
+               </property>
+               <property name="maximum">
+                <number>255</number>
+               </property>
+               <property name="value">
+                <number>200</number>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="wmFullpageMaxLabel">
+               <property name="text">
+                <string>Máx por página:</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QSpinBox" name="watermarkFullpageMaxSpin">
+               <property name="minimum">
+                <number>0</number>
+               </property>
+               <property name="maximum">
+                <number>999</number>
+               </property>
+               <property name="value">
+                <number>1</number>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="wmFullpageInsertLayout">
+             <item>
+              <widget class="QCheckBox" name="watermarkFullpageInsertModeCheckbox">
+               <property name="text">
+                <string>Modo inserção (cortar e inserir)</string>
+               </property>
+               <property name="toolTip">
+                <string>Se ativado, a marca d'água será inserida cortando a imagem no meio da área uniforme.
+Se desativado, a marca d'água será sobreposta na imagem sem alterar o tamanho.</string>
+               </property>
+               <property name="checked">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="wmFullpageMinAreaLabel">
+               <property name="text">
+                <string>Altura mín. da área:</string>
+               </property>
+               <property name="toolTip">
+                <string>Altura mínima (em pixels) que uma área uniforme precisa ter para receber a marca d'água.
+Exemplo: Se a marca d'água tem 150px e este valor é 400px, só áreas uniformes com 400px+ receberão a marca.</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QSpinBox" name="watermarkFullpageMinAreaSpin">
+               <property name="toolTip">
+                <string>Altura mínima (em pixels) que uma área uniforme precisa ter para receber a marca d'água.
+Exemplo: Se a marca d'água tem 150px e este valor é 400px, só áreas uniformes com 400px+ receberão a marca.</string>
+               </property>
+               <property name="minimum">
+                <number>100</number>
+               </property>
+               <property name="maximum">
+                <number>2000</number>
+               </property>
+               <property name="value">
+                <number>400</number>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="watermarkOverlayGroupBox">
+          <property name="title">
+           <string>Marca d'água de Sobreposição</string>
+          </property>
+          <layout class="QVBoxLayout" name="wmOverlayLayout">
+           <property name="spacing">
+            <number>4</number>
+           </property>
+           <item>
+            <widget class="QCheckBox" name="watermarkOverlayEnabledCheckbox">
+             <property name="text">
+              <string>Marca d'água de Sobreposição (menor, com transparência)</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="wmOverlayPathLayout">
+             <item>
+              <widget class="QLineEdit" name="watermarkOverlayPathField">
+               <property name="placeholderText">
+                <string>Imagens de sobreposição (separados por ;)</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="browseWatermarkOverlayButton">
+               <property name="text">
+                <string>...</string>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>40</width>
+                 <height>16777215</height>
+                </size>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="wmOverlayAdvancedLayout">
+             <item>
+              <widget class="QLabel" name="wmOverlayPositionLabel">
+               <property name="text">
+                <string>Posição:</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="watermarkOverlayPositionCombo">
+               <item>
+                <property name="text">
+                 <string>Automático</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Superior esquerdo</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Superior direito</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Inferior esquerdo</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Inferior direito</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Centro</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="wmOverlayOpacityLabel">
+               <property name="text">
+                <string>Opacidade (%):</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QSpinBox" name="watermarkOverlayOpacitySpin">
+               <property name="minimum">
+                <number>0</number>
+               </property>
+               <property name="maximum">
+                <number>100</number>
+               </property>
+               <property name="value">
+                <number>80</number>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="wmOverlayAdvancedLayout2">
+             <item>
+              <widget class="QLabel" name="wmOverlayScaleLabel">
+               <property name="text">
+                <string>Escala (% largura):</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QSpinBox" name="watermarkOverlayScaleSpin">
+               <property name="minimum">
+                <number>5</number>
+               </property>
+               <property name="maximum">
+                <number>100</number>
+               </property>
+               <property name="value">
+                <number>50</number>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="wmOverlayMaxLabel">
+               <property name="text">
+                <string>Máx por página:</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QSpinBox" name="watermarkOverlayMaxSpin">
+               <property name="minimum">
+                <number>0</number>
+               </property>
+               <property name="maximum">
+                <number>999</number>
+               </property>
+               <property name="value">
+                <number>1</number>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="watermarkHeaderFooterGroupBox">
+          <property name="title">
+           <string>Header / Footer</string>
+          </property>
+          <layout class="QVBoxLayout" name="wmHFLayout">
+           <property name="spacing">
+            <number>4</number>
+           </property>
+           <item>
+            <widget class="QCheckBox" name="watermarkHeaderEnabledCheckbox">
+             <property name="text">
+              <string>Adicionar header (primeira imagem)</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="wmHeaderPathLayout">
+             <item>
+              <widget class="QLineEdit" name="watermarkHeaderPathField">
+               <property name="placeholderText">
+                <string>Caminhos dos headers (separados por ;)</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="browseWatermarkHeaderButton">
+               <property name="text">
+                <string>...</string>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>40</width>
+                 <height>16777215</height>
+                </size>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="watermarkFooterEnabledCheckbox">
+             <property name="text">
+              <string>Adicionar footer (última imagem)</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="wmFooterPathLayout">
+             <item>
+              <widget class="QLineEdit" name="watermarkFooterPathField">
+               <property name="placeholderText">
+                <string>Caminhos dos footers (separados por ;)</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="browseWatermarkFooterButton">
+               <property name="text">
+                <string>...</string>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>40</width>
+                 <height>16777215</height>
+                </size>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <spacer name="watermarkVerticalSpacer">
+          <property name="orientation">
+           <enum>Qt::Vertical</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>20</width>
+            <height>40</height>
+           </size>
+          </property>
+         </spacer>
         </item>
        </layout>
       </widget>

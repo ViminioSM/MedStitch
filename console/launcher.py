@@ -44,7 +44,7 @@ def launch():
     )
     parser.add_argument(
         "-s",
-        dest='detection_senstivity',
+        dest='detection_sensitivity',
         type=int,
         default=90,
         choices=range(0, 101),

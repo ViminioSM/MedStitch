@@ -1,0 +1,64 @@
+name: Auto Tag From Commit Title
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tag-from-commit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse version from commit title
+        id: ver
+        shell: bash
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          COMMIT_TITLE="${COMMIT_MSG%%$'\n'*}"
+
+          if [[ -z "$COMMIT_TITLE" ]]; then
+            echo "No head commit title found. Skipping auto-tag."
+            echo "should_tag=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$COMMIT_TITLE" =~ (^|[^0-9])v?([0-9]+\.[0-9]+\.[0-9]+)([^0-9]|$) ]]; then
+            VERSION_RAW="${BASH_REMATCH[2]}"
+            echo "Found version in commit title: $VERSION_RAW"
+            echo "should_tag=true" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION_RAW" >> "$GITHUB_OUTPUT"
+            echo "tag=v$VERSION_RAW" >> "$GITHUB_OUTPUT"
+          else
+            echo "Commit title has no semantic version (x.y.z). Skipping auto-tag."
+            echo "should_tag=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push tag if missing
+        if: steps.ver.outputs.should_tag == 'true'
+        shell: bash
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+
+          git fetch --tags --force
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag '$TAG' already exists. Nothing to do."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          echo "Created tag $TAG"

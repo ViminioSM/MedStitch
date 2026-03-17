@@ -1,3 +1,8 @@
+"""
+DEPRECATED: This module contains utility functions only used by the deprecated GlobalTracker.
+
+These functions will be removed in a future version along with GlobalTracker.
+"""
 import inspect
 
 

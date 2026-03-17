@@ -1,17 +1,105 @@
 import os
+import json
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import urllib.request
+import zipfile
+import winreg
+from typing import Any, Callable
 
-from PySide6.QtCore import QEvent, QObject, Qt, QThread, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMessageBox
 
 from assets.SmartStitchLogo import icon
-from core.models import WorkDirectory
-from core.services import SettingsHandler, AdvancedPsdMerger, PostProcessRunner
-from core.utils.constants import OUTPUT_SUFFIX, POSTPROCESS_SUFFIX
+from core.services import SettingsHandler
+from core.utils.constants import OUTPUT_SUFFIX
+from gui.build_version import APP_BUILD_VERSION
 from gui.process import GuiStitchProcess
 
-SCRIPT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_SCRIPT_DIR)
+
+
+def _load_app_version() -> str:
+    env_version = os.getenv("MEDSTITCH_VERSION", os.getenv("SMARTSTITCH_VERSION", "")).strip()
+    if env_version:
+        return env_version
+
+    if APP_BUILD_VERSION and APP_BUILD_VERSION != "0.0.0":
+        return APP_BUILD_VERSION
+
+    try:
+        commit_title = subprocess.check_output(
+            ["git", "log", "-1", "--pretty=%s"],
+            cwd=_PROJECT_ROOT,
+            text=True,
+            timeout=3,
+        ).strip()
+        match = re.search(r"\bv?(\d+\.\d+\.\d+)\b", commit_title)
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+
+    return APP_BUILD_VERSION or "0.0.0"
+
+WAIFU_ZIP_URL = (
+    "https://github.com/ViminioSM/MedStitch/releases/download/waifu2x/Waifu2X.zip"
+)
+WAIFU_INSTALL_DIR = "C:/Manhwa/Waifu2X"
+WAIFU_EXE_PATH = os.path.join(WAIFU_INSTALL_DIR, "waifu2x-ncnn-vulkan.exe")
+WAIFU_ARGS_JPG = "-i [stitched] -o [processed] -n 3 -s 1 -f jpg"
+WAIFU_ARGS_WEBP = "-i [stitched] -o [processed] -n 3 -s 1 -f webp"
+APP_NAME = "MedStitch"
+APP_VENDOR = "ViminioSM"
+APP_VERSION = _load_app_version()
+GITHUB_REPO = "ViminioSM/MedStitch"
+GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
+GITHUB_API_LATEST_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+AUTO_CHECK_UPDATES_ON_STARTUP = True
+AUTO_UPDATE_ON_STARTUP = True
+
+_CONTEXT_MENU_GUI = os.path.join(_PROJECT_ROOT, "SmartStitchGUI.py")
+_ICON_FILE = os.path.join(_PROJECT_ROOT, "assets", "SmartStitchLogo.ico")
+
+_REG_BASE_KEYS = (
+    r"Software\Classes\Directory\shell\MedStitch",
+    r"Software\Classes\Directory\Background\shell\MedStitch",
+)
+
+_LEGACY_REG_BASE_KEYS = (
+    r"Software\Classes\Directory\shell\SmartStitch",
+    r"Software\Classes\Directory\Background\shell\SmartStitch",
+)
+
+_CONTEXT_MENU_ENTRIES = (
+    ("Redraw",        "Processar (Redraw)",            "redraw", False, None, True,  True),
+    ("Type",          "Processar (Type)",              "type",   False, None, True,  True),
+    ("RedrawWaifu",   "Processar (Redraw + Waifu2X)",  "redraw", True,  None, True,  True),
+    ("TypeWaifu",     "Processar (Type + Waifu2X)",    "type",   True,  None, True,  True),
+    ("WatermarkToggle", "Mudar Marcas d'agua",         None,     False, None,  False, False),
+)
+
+# ── Module-level state (set once by initialize_gui) ──────────────────────────
+_main_window: Any = None
+_settings: Any = None
+_process_thread: "ProcessThread | None" = None
+_folder_drop_filter: "FolderDropFilter | None" = None
+_auto_close_on_finish: bool = False
+_job_queue: list[dict] = []
+_job_running: bool = False
+
+_WATERMARK_KEYS = (
+    "watermark_fullpage_enabled",
+    "watermark_overlay_enabled",
+    "watermark_header_enabled",
+    "watermark_footer_enabled",
+)
 
 
 class FolderDropFilter(QObject):
@@ -23,655 +111,816 @@ class FolderDropFilter(QObject):
     """
 
     def eventFilter(self, obj, event):  # type: ignore[override]
-        if event.type() == QEvent.Type.DragEnter:
-            mime = event.mimeData()
-            if mime and mime.hasUrls():
-                for url in mime.urls():
-                    path = url.toLocalFile()
-                    if path and os.path.isdir(path):
-                        event.acceptProposedAction()
-                        return True
+        etype = event.type()
+        if etype not in (QEvent.Type.DragEnter, QEvent.Type.Drop):
+            return super().eventFilter(obj, event)
+
+        mime = event.mimeData()
+        if not mime or not mime.hasUrls():
             return False
 
-        if event.type() == QEvent.Type.Drop:
-            mime = event.mimeData()
-            if mime and mime.hasUrls():
-                for url in mime.urls():
-                    path = url.toLocalFile()
-                    if path and os.path.isdir(path):
-                        obj.setText(path)
-                        event.acceptProposedAction()
-                        return True
-            return False
+        for url in mime.urls():
+            path = url.toLocalFile()
+            if path and os.path.isdir(path):
+                if etype == QEvent.Type.Drop:
+                    obj.setText(path)
+                event.acceptProposedAction()
+                return True
 
-        return QObject.eventFilter(self, obj, event)
+        return False
 
 
 class ProcessThread(QThread):
     progress = Signal(int, str)
     postProcessConsole = Signal(str)
-    showWarning = Signal(str, str)  # title, message
-    showError = Signal(str, str)    # title, message
-    showInfo = Signal(str, str)     # title, message
+    showWarning = Signal(str, str)
+    showError = Signal(str, str)
+    showInfo = Signal(str, str)
 
     def __init__(self, parent):
-        super(ProcessThread, self).__init__(parent)
+        super().__init__(parent)
         self._input_path = ""
         self._output_path = ""
-        self._advanced_index = 0
-        self._advanced_normal_dir = ""
-        self._advanced_edited_dir = ""
-        self._advanced_psd_source_dir = ""
 
-    def configure(
-        self,
-        input_path: str,
-        output_path: str,
-        advanced_index: int,
-        advanced_normal_dir: str,
-        advanced_edited_dir: str,
-        advanced_psd_source_dir: str,
-    ):
+    def configure(self, input_path: str, output_path: str) -> None:
         """Configure thread parameters before starting."""
         self._input_path = input_path
         self._output_path = output_path
-        self._advanced_index = advanced_index
-        self._advanced_normal_dir = advanced_normal_dir
-        self._advanced_edited_dir = advanced_edited_dir
-        self._advanced_psd_source_dir = advanced_psd_source_dir
 
-    def run(self):
-        process = GuiStitchProcess()
-
-        # If Basic input is configured, run the standard stitching process.
-        if self._input_path:
-            process.run_with_error_msgs(
-                input_path=self._input_path,
-                output_path=self._output_path,
-                status_func=self.progress.emit,
-                console_func=self.postProcessConsole.emit,
-            )
-
-        # Run Advanced pipeline in the same thread
-        self._run_advanced_pipeline(process)
-
-    def _run_advanced_pipeline(self, process: GuiStitchProcess):
-        """Run Advanced tasks in the worker thread.
-
-        This method orchestrates the Advanced workflows after the main
-        (Basic) stitching process, according to the selected source type.
-        """
-        # --- Mode 0: Two folders (Normal + Edited) ---
-        if self._advanced_index == 0:
-            normal_dir = self._advanced_normal_dir
-            edited_dir = self._advanced_edited_dir
-
-            if not normal_dir and not edited_dir:
-                # Nothing configured in Advanced; silently skip.
-                return
-
-            if not normal_dir or not os.path.isdir(normal_dir):
-                self.showWarning.emit(
-                    "Advanced PSD Merge",
-                    "Please select a valid 'Normal layer' folder.",
-                )
-                return
-            if not edited_dir or not os.path.isdir(edited_dir):
-                self.showWarning.emit(
-                    "Advanced PSD Merge",
-                    "Please select a valid 'Edited layer' folder.",
-                )
-                return
-
-            self.progress.emit(0, "Working - Running Advanced PSD merge (two folders)")
-            
-            merger = AdvancedPsdMerger(console_func=self.postProcessConsole.emit)
-            try:
-                created = merger.merge_folders_to_psd(
-                    normal_dir,
-                    edited_dir,
-                )
-                self.progress.emit(100, "Idle - Advanced PSD merge (two folders) completed")
-                self.showInfo.emit(
-                    "Advanced PSD Merge",
-                    f"Finished. Created {created} PSD file(s).",
-                )
-            except Exception as exc:
-                self.showError.emit(
-                    "Advanced PSD Merge",
-                    f"An error occurred while merging to PSD: {exc}",
-                )
+    def run(self) -> None:
+        if not self._input_path:
             return
-
-        # --- Mode 1: PSD source (folder of PSDs) ---
-        if self._advanced_index == 1:
-            psd_source_dir = self._advanced_psd_source_dir
-            if not psd_source_dir:
-                return
-            if not os.path.isdir(psd_source_dir):
-                self.showWarning.emit(
-                    "Advanced PSD Source",
-                    "Please select a valid PSD source folder.",
-                )
-                return
-
-            edited_dir = psd_source_dir + " [Edited]"
-            original_dir = psd_source_dir + " [Original]"
-            merged_dir = psd_source_dir + " [Merged]"
-
-            self.postProcessConsole.emit(
-                f"[Advanced] PSD source mode enabled. Source: {psd_source_dir}"
-            )
-            self.postProcessConsole.emit(f"[Advanced] Edited output folder: {edited_dir}")
-            self.postProcessConsole.emit(f"[Advanced] Original output folder: {original_dir}")
-            self.postProcessConsole.emit(f"[Advanced] Merged output folder: {merged_dir}")
-
-            try:
-                self.progress.emit(0, "Working - Advanced PSD source (Edited pass)")
-                process.run_with_error_msgs(
-                    input_path=psd_source_dir,
-                    output_path=edited_dir,
-                    postprocess_path=edited_dir + POSTPROCESS_SUFFIX,
-                    status_func=self.progress.emit,
-                    console_func=self.postProcessConsole.emit,
-                    disable_comiczip=True,
-                )
-
-                self.progress.emit(0, "Working - Advanced PSD source (Original pass)")
-                process.run_with_error_msgs(
-                    input_path=psd_source_dir,
-                    output_path=original_dir,
-                    status_func=self.progress.emit,
-                    console_func=self.postProcessConsole.emit,
-                    psd_first_layer_only=True,
-                    disable_postprocess=True,
-                    disable_comiczip=True,
-                )
-            except Exception as exc:
-                self.showError.emit(
-                    "Advanced PSD Source",
-                    f"An error occurred while running the PSD source pipeline: {exc}",
-                )
-                return
-
-            # Merge [Original] and [Edited]/[Processed] into [Merged]
-            thread_settings = SettingsHandler()
-            has_postprocess = thread_settings.load("run_postprocess")
-            merge_edited_source = (
-                edited_dir + POSTPROCESS_SUFFIX if has_postprocess else edited_dir
-            )
-            self.progress.emit(50, "Working - Advanced PSD merge (Merged folder)")
-
-            merger = AdvancedPsdMerger(console_func=self.postProcessConsole.emit)
-            try:
-                created = merger.merge_folders_to_psd(
-                    normal_dir=original_dir,
-                    edited_dir=merge_edited_source,
-                    output_dir=merged_dir,
-                )
-            except Exception as exc:
-                self.showError.emit(
-                    "Advanced PSD Merge",
-                    f"An error occurred while merging PSD folders: {exc}",
-                )
-                return
-
-            # Optionally run ComicZip
-            if thread_settings.load("run_comiczip"):
-                project_root = os.path.dirname(os.path.dirname(__file__))
-                comiczip_script = os.path.join(project_root, "scripts", "comiczip.py")
-
-                workdir = WorkDirectory(
-                    merged_dir,
-                    merged_dir,
-                    merged_dir + POSTPROCESS_SUFFIX,
-                )
-                runner = PostProcessRunner()
-                try:
-                    runner.run(
-                        workdirectory=workdir,
-                        postprocess_app="python",
-                        postprocess_args=f"{comiczip_script} -i [stitched] -o [processed]",
-                        console_func=self.postProcessConsole.emit,
-                    )
-                except Exception as exc:
-                    self.showError.emit(
-                        "Advanced ComicZip",
-                        f"An error occurred while running ComicZip on merged folder: {exc}",
-                    )
-
-            self.showInfo.emit(
-                "Advanced PSD Merge",
-                f"PSD source workflow completed. Created {created} merged PSD file(s) in:\n{merged_dir}",
-            )
-            self.progress.emit(100, "Idle - Advanced PSD source workflow completed")
+        GuiStitchProcess().run_with_error_msgs(
+            input_path=self._input_path,
+            output_path=self._output_path,
+            status_func=self.progress.emit,
+            console_func=self.postProcessConsole.emit,
+        )
 
 
-def initialize_gui():
-    global MainWindow
-    global settings
-    global appVersion
-    global appAuthor
-    global processThread
-    global folderDropFilter
-    MainWindow = QUiLoader().load(os.path.join(SCRIPT_DIRECTORY, 'layout.ui'))
-    settings = SettingsHandler()
-    # Sets Window Title & Icon
+def initialize_gui(
+    *,
+    preset: str | None = None,
+    input_path: str | None = None,
+    waifu: bool = False,
+    watermark: bool | None = None,
+    autostart: bool = False,
+) -> None:
+    global _main_window, _settings, _process_thread
+    global _folder_drop_filter, _auto_close_on_finish
+    global _job_queue, _job_running
+
+    _main_window = QUiLoader().load(os.path.join(_SCRIPT_DIR, "layout.ui"))
+    _settings = SettingsHandler()
+
+    _settings.save("postprocess_app", WAIFU_EXE_PATH)
+    _settings.save("postprocess_args", WAIFU_ARGS_JPG)
+
     pixmap = QPixmap()
     pixmap.loadFromData(icon)
-    appIcon = QIcon(pixmap)
-    MainWindow.setWindowIcon(appIcon)
-    # Sets Window Title
-    appVersion = "3.1"
-    appAuthor = "MechTechnology"
-    MainWindow.setWindowTitle("SmartStitch By {0} [{1}]".format(appAuthor, appVersion))
-    # Controls Setup
-    on_load()
-    bind_signals()
-    # Enable drag-and-drop of folders into directory fields.
-    folderDropFilter = FolderDropFilter(MainWindow)
-    for field in [
-        MainWindow.inputField,
-        MainWindow.outputField,
-        MainWindow.advancedNormalField,
-        MainWindow.advancedEditedField,
-        MainWindow.advancedPsdSourceField,
-    ]:
-        field.setAcceptDrops(True)
-        field.installEventFilter(folderDropFilter)
-    # Sets up process thread
-    processThread = ProcessThread(MainWindow)
-    processThread.progress.connect(update_process_progress)
-    processThread.postProcessConsole.connect(update_postprocess_console)
-    processThread.showWarning.connect(show_warning_dialog)
-    processThread.showError.connect(show_error_dialog)
-    processThread.showInfo.connect(show_info_dialog)
-    # Show Window
-    MainWindow.show()
+    _main_window.setWindowIcon(QIcon(pixmap))
+    _main_window.setWindowTitle(f"{APP_NAME} By {APP_VENDOR} [{APP_VERSION}]")
+
+    _on_load()
+    _bind_signals()
+
+    _folder_drop_filter = FolderDropFilter(_main_window)
+    _main_window.inputField.setAcceptDrops(True)
+    _main_window.inputField.installEventFilter(_folder_drop_filter)
+
+    _process_thread = ProcessThread(_main_window)
+    _process_thread.progress.connect(_update_progress)
+    _process_thread.postProcessConsole.connect(_update_console)
+    _process_thread.showWarning.connect(lambda t, m: QMessageBox.warning(_main_window, t, m))
+    _process_thread.showError.connect(lambda t, m: QMessageBox.critical(_main_window, t, m))
+    _process_thread.showInfo.connect(lambda t, m: QMessageBox.information(_main_window, t, m))
+    _process_thread.finished.connect(_maybe_auto_close)
+    _process_thread.finished.connect(_maybe_start_next_job)
+
+    _auto_close_on_finish = bool(autostart)
+    _job_queue = []
+    _job_running = False
+
+    _main_window.show()
+
+    if AUTO_CHECK_UPDATES_ON_STARTUP:
+        # Delay slightly so UI is visible/responsive before network call.
+        QTimer.singleShot(1200, _startup_update_check)
+
+    if preset or input_path or waifu or (watermark is not None) or autostart:
+        enqueue_job(
+            preset=preset,
+            input_path=input_path,
+            waifu=waifu,
+            watermark=watermark,
+            autostart=autostart,
+        )
 
 
-def on_load(load_profiles=True):
-    # App Fields
-    MainWindow.statusField.setText("Idle")
-    MainWindow.statusProgressBar.setValue(0)
-    # Settings Fields
-    MainWindow.outputTypeDropdown.setCurrentText(settings.load("output_type"))
-    MainWindow.lossyField.setValue(settings.load("lossy_quality"))
-    MainWindow.heightField.setValue(settings.load("split_height"))
-    MainWindow.widthEnforcementDropdown.setCurrentIndex(settings.load("enforce_type"))
-    MainWindow.customWidthField.setValue(settings.load("enforce_width"))
-    MainWindow.detectorTypeDropdown.setCurrentIndex(settings.load("detector_type"))
-    MainWindow.detectorSensitivityField.setValue(settings.load("senstivity"))
-    MainWindow.scanStepField.setValue(settings.load("scan_step"))
-    MainWindow.ignoreMarginField.setValue(settings.load("ignorable_pixels"))
-    MainWindow.runProcessCheckbox.setChecked(settings.load("run_postprocess"))
-    MainWindow.runComicZipCheckbox.setChecked(settings.load("run_comiczip"))
-    MainWindow.postProcessAppField.setText(settings.load("postprocess_app"))
-    MainWindow.postProcessArgsField.setText(settings.load("postprocess_args"))
-    output_type_changed(False)
-    enforce_type_changed(False)
-    detector_type_changed(False)
-    # Sync visibility of Advanced controls (Two folders vs PSD source)
-    advanced_source_type_changed()
-    if load_profiles:
-        update_profiles_list()
-        MainWindow.currentProfileDropdown.setCurrentIndex(settings.get_current_index())
-        current_profile_changed(False)
+def enqueue_job(
+    *,
+    preset: str | None = None,
+    input_path: str | None = None,
+    waifu: bool = False,
+    watermark: bool | None = None,
+    autostart: bool = True,
+) -> None:
+    global _auto_close_on_finish
+    if _main_window is None:
+        return
+
+    _job_queue.append({
+        "preset": preset,
+        "input_path": input_path,
+        "waifu": waifu,
+        "watermark": watermark,
+        "autostart": autostart,
+    })
+
+    if autostart:
+        _auto_close_on_finish = True
+
+    if not _job_running:
+        _start_next_job()
 
 
-def bind_signals():
-    MainWindow.inputField.textChanged.connect(input_field_changed)
-    MainWindow.browseButton.clicked.connect(browse_location)
-    MainWindow.outputTypeDropdown.currentTextChanged.connect(output_type_changed)
-    MainWindow.lossyField.valueChanged.connect(lossy_quality_changed)
-    MainWindow.heightField.valueChanged.connect(split_height_changed)
-    MainWindow.widthEnforcementDropdown.currentTextChanged.connect(enforce_type_changed)
-    MainWindow.customWidthField.valueChanged.connect(custom_width_changed)
-    MainWindow.detectorTypeDropdown.currentTextChanged.connect(detector_type_changed)
-    MainWindow.detectorSensitivityField.valueChanged.connect(
-        detector_sensitivity_changed
-    )
-    MainWindow.scanStepField.valueChanged.connect(scan_step_changed)
-    MainWindow.ignoreMarginField.valueChanged.connect(ignorable_margin_changed)
-    MainWindow.currentProfileDropdown.currentTextChanged.connect(
-        current_profile_changed
-    )
-    MainWindow.currentProfileName.textChanged.connect(current_profile_name_changed)
-    MainWindow.addProfileButton.clicked.connect(add_profile)
-    MainWindow.removeProfileButton.clicked.connect(remove_profile)
-    MainWindow.runProcessCheckbox.stateChanged.connect(run_postprocess_changed)
-    MainWindow.runComicZipCheckbox.stateChanged.connect(run_comiczip_changed)
-    MainWindow.advancedSourceTypeDropdown.currentIndexChanged.connect(
-        advanced_source_type_changed
-    )
-    MainWindow.browseAdvancedNormalButton.clicked.connect(browse_advanced_normal_folder)
-    MainWindow.browseAdvancedEditedButton.clicked.connect(browse_advanced_edited_folder)
-    MainWindow.browseAdvancedPsdSourceButton.clicked.connect(
-        browse_advanced_psd_source_folder
-    )
-    MainWindow.detectorHelpButton.clicked.connect(show_detector_help)
-    MainWindow.browsePostProcessAppButton.clicked.connect(browse_postprocess_app)
-    MainWindow.postProcessAppField.textChanged.connect(postprocess_app_changed)
-    MainWindow.postProcessArgsField.textChanged.connect(postprocess_args_changed)
-    MainWindow.startProcessButton.clicked.connect(launch_process_async)
+def _start_next_job() -> None:
+    global _job_running
+    if not _job_queue:
+        _job_running = False
+        return
 
+    job = _job_queue.pop(0)
+    _job_running = True
 
-def input_field_changed():
-    input_path = MainWindow.inputField.text() or ""
+    preset = job.get("preset")
+    input_path = job.get("input_path")
+    waifu = bool(job.get("waifu", False))
+    watermark = job.get("watermark", None)
+    autostart = bool(job.get("autostart", True))
+
+    if preset:
+        preset_lower = str(preset).strip().lower()
+        if preset_lower == "type":
+            _apply_type_preset()
+        elif preset_lower == "redraw":
+            _apply_redraw_preset()
+
+    _settings.save("run_postprocess", waifu)
+    _main_window.runProcessCheckbox.setChecked(waifu)
+
+    if watermark is not None:
+        _set_watermark_enabled(bool(watermark))
+
     if input_path:
-        MainWindow.outputField.setText(input_path + OUTPUT_SUFFIX)
-    else:
-        MainWindow.outputField.setText("")
-    if (os.path.exists(input_path)):
-        settings.save("last_browse_location", input_path)
+        _main_window.inputField.setText(input_path)
+
+    if autostart:
+        QTimer.singleShot(0, _launch_process)
 
 
-def browse_location():
-    start_directory = settings.load("last_browse_location")
-    if not start_directory or not os.path.exists(start_directory):
-        start_directory = os.path.expanduser("~")
-    dialog = QFileDialog(
-        MainWindow,
-        'Select Input Directory Files',
-        directory=start_directory,
-        FileMode=QFileDialog.FileMode.Directory,
-    )
-    if dialog.exec_() == QDialog.Accepted:
-        input_path = dialog.selectedFiles()[0] or ""
-        MainWindow.inputField.setText(input_path)
-        MainWindow.outputField.setText(input_path + OUTPUT_SUFFIX)
+def _maybe_start_next_job() -> None:
+    if _job_queue:
+        QTimer.singleShot(0, _start_next_job)
 
 
-def output_type_changed(save=True):
-    file_type = MainWindow.outputTypeDropdown.currentText()
-    if save:
-        settings.save("output_type", file_type)
-    if file_type in ['.jpg', '.webp']:
-        MainWindow.lossyWrapper.setHidden(False)
-    else:
-        MainWindow.lossyWrapper.setHidden(True)
+def _maybe_auto_close() -> None:
+    if _auto_close_on_finish and not _job_queue:
+        QTimer.singleShot(250, QApplication.quit)
 
 
-def lossy_quality_changed():
-    settings.save("lossy_quality", MainWindow.lossyField.value())
-
-
-def split_height_changed():
-    settings.save("split_height", MainWindow.heightField.value())
-
-
-def enforce_type_changed(save=True):
-    enforce_type = MainWindow.widthEnforcementDropdown.currentIndex()
-    if save:
-        settings.save("enforce_type", enforce_type)
-    if enforce_type == 2:
-        MainWindow.customWidthWrapper.setHidden(False)
-    else:
-        MainWindow.customWidthWrapper.setHidden(True)
-
-
-def custom_width_changed():
-    settings.save("enforce_width", MainWindow.customWidthField.value())
-
-
-def detector_type_changed(save=True):
-    detector_type = MainWindow.detectorTypeDropdown.currentIndex()
-    if save:
-        settings.save("detector_type", detector_type)
-    if detector_type == 1:
-        MainWindow.detectorSensitvityWrapper.setHidden(False)
-        MainWindow.scanStepWrapper.setHidden(False)
-        MainWindow.ignoreMarginWrapper.setHidden(False)
-    else:
-        MainWindow.detectorSensitvityWrapper.setHidden(True)
-        MainWindow.scanStepWrapper.setHidden(True)
-        MainWindow.ignoreMarginWrapper.setHidden(True)
-
-
-def detector_sensitivity_changed():
-    settings.save("senstivity", MainWindow.detectorSensitivityField.value())
-
-
-def scan_step_changed():
-    settings.save("scan_step", MainWindow.scanStepField.value())
-
-
-def ignorable_margin_changed():
-    settings.save("ignorable_pixels", MainWindow.ignoreMarginField.value())
-
-
-def update_profiles_list():
-    profile_names = settings.get_profile_names()
-    MainWindow.currentProfileDropdown.clear()
-    for index in range(len(profile_names)):
-        MainWindow.currentProfileDropdown.insertItem(index, profile_names[index])
-    return len(profile_names)
-
-
-def current_profile_changed(save=True):
-    current_profile = MainWindow.currentProfileDropdown.currentIndex()
-    if save:
-        settings.set_current_index(current_profile)
-        on_load(False)
-    MainWindow.currentProfileName.setText(settings.get_current_profile_name())
-
-
-def current_profile_name_changed():
-    new_name = MainWindow.currentProfileName.text()
-    settings.set_current_profile_name(new_name)
-    current = MainWindow.currentProfileDropdown.currentIndex()
-    MainWindow.currentProfileDropdown.setItemText(current, new_name)
-
-
-def add_profile():
-    profile_name = settings.add_profile()
-    new_index = update_profiles_list() - 1
-    MainWindow.currentProfileDropdown.setCurrentIndex(new_index)
-    MainWindow.currentProfileName.setText(profile_name)
-
-
-def remove_profile():
-    current_profile = MainWindow.currentProfileDropdown.currentIndex()
-    settings.remove_profile(current_profile)
-    MainWindow.currentProfileDropdown.removeItem(current_profile)
-    MainWindow.currentProfileDropdown.setCurrentIndex(0)
-
-
-def run_postprocess_changed():
-    settings.save("run_postprocess", MainWindow.runProcessCheckbox.isChecked())
-
-
-def run_comiczip_changed():
-    settings.save("run_comiczip", MainWindow.runComicZipCheckbox.isChecked())
-
-
-def show_detector_help():
-    QMessageBox.information(
-        MainWindow,
-        "Detector Settings Help",
-        (
-            "Detector Type:\n"
-            "- Direct Slicing: cuts pages at fixed intervals equal to the Rough Output Height,\n"
-            "  ignoring pixel content. This is the fastest mode, but it may cut speech bubbles\n"
-            "  or SFX.\n\n"
-            "- Smart Pixel Comparison: analyzes pixels around the target cut height\n"
-            "  and tries to avoid lines with abrupt color/value changes, reducing the chance\n"
-            "  of cutting text or SFX. It is slower, but usually produces better panel splits.\n\n"
-            "Object Detection Sensitivity [1-100%]:\n"
-            "- High values (90-100): the detector only accepts very homogeneous lines,\n"
-            "  minimizing cuts on important content, but producing panels with more varied\n"
-            "  heights.\n"
-            "- Medium/low values (20-50): the detector tolerates more pixel variation,\n"
-            "  which can make panels more uniform, but increases the risk of cutting\n"
-            "  speech bubbles/SFX.\n\n"
-            "Scan Line Step [1-25 px]:\n"
-            "- Controls how many pixels the scan line jumps when searching for the next\n"
-            "  candidate cut position after rejecting the current one. Small values (1-5)\n"
-            "  give dense scanning (more precise, slower); higher values (10-25) give faster,\n"
-            "  but less precise scanning.\n\n"
-            "Ignoreable Horizontal Margins [px]:\n"
-            "- Number of pixels ignored at the left/right edges of the image during detection.\n"
-            "  Useful when there are decorative frames or noise at the borders. This makes the\n"
-            "  detector focus on the inner area where panels and speech bubbles are.\n"
-            "  Avoid very large values relative to the image width."
-        ),
+def _startup_update_check() -> None:
+    _check_for_updates(
+        silent_if_latest=True,
+        auto_update=AUTO_UPDATE_ON_STARTUP,
     )
 
 
-def browse_postprocess_app():
-    dialog = QFileDialog(
-        MainWindow,
-        'Select Post Process Application Directory',
-        FileMode=QFileDialog.FileMode.ExistingFile,
+def _is_any_watermark_enabled() -> bool:
+    return any(bool(_settings.load(key)) for key in _WATERMARK_KEYS)
+
+
+def _watermark_context_action_label() -> str:
+    return "Desativar Marcas d'agua" if _is_any_watermark_enabled() else "Ativar Marcas d'agua"
+
+
+def _set_watermark_enabled(enabled: bool) -> None:
+    _settings.save("watermark_fullpage_enabled", enabled)
+    _settings.save("watermark_overlay_enabled", enabled)
+    _settings.save("watermark_header_enabled", enabled)
+    _settings.save("watermark_footer_enabled", enabled)
+
+    _main_window.watermarkFullpageEnabledCheckbox.setChecked(enabled)
+    _main_window.watermarkOverlayEnabledCheckbox.setChecked(enabled)
+    _main_window.watermarkHeaderEnabledCheckbox.setChecked(enabled)
+    _main_window.watermarkFooterEnabledCheckbox.setChecked(enabled)
+
+    _toggle_fullpage_options(enabled)
+    _toggle_overlay_options(enabled)
+    _toggle_header_options(enabled)
+    _toggle_footer_options(enabled)
+
+
+def _toggle_fullpage_options(enabled: bool) -> None:
+    """Show/hide fullpage watermark options based on checkbox state."""
+    def set_layout_visible(layout, visible, exclude_widget):
+        """Recursively set visibility for all widgets in layout."""
+        if not layout:
+            return
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            if item:
+                widget = item.widget()
+                sublayout = item.layout()
+                if widget and widget != exclude_widget:
+                    widget.setVisible(visible)
+                if sublayout:
+                    set_layout_visible(sublayout, visible, exclude_widget)
+    
+    layout = _main_window.watermarkFullpageGroupBox.layout()
+    set_layout_visible(layout, enabled, _main_window.watermarkFullpageEnabledCheckbox)
+
+
+def _toggle_overlay_options(enabled: bool) -> None:
+    """Show/hide overlay watermark options based on checkbox state."""
+    def set_layout_visible(layout, visible, exclude_widget):
+        """Recursively set visibility for all widgets in layout."""
+        if not layout:
+            return
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            if item:
+                widget = item.widget()
+                sublayout = item.layout()
+                if widget and widget != exclude_widget:
+                    widget.setVisible(visible)
+                if sublayout:
+                    set_layout_visible(sublayout, visible, exclude_widget)
+    
+    layout = _main_window.watermarkOverlayGroupBox.layout()
+    set_layout_visible(layout, enabled, _main_window.watermarkOverlayEnabledCheckbox)
+
+
+def _toggle_header_options(enabled: bool) -> None:
+    """Show/hide header watermark options based on checkbox state."""
+    _main_window.watermarkHeaderPathField.setVisible(enabled)
+    _main_window.browseWatermarkHeaderButton.setVisible(enabled)
+
+
+def _toggle_footer_options(enabled: bool) -> None:
+    """Show/hide footer watermark options based on checkbox state."""
+    _main_window.watermarkFooterPathField.setVisible(enabled)
+    _main_window.browseWatermarkFooterButton.setVisible(enabled)
+
+
+def _on_load() -> None:
+    _main_window.statusField.setText("Idle")
+    _main_window.statusProgressBar.setValue(0)
+    _main_window.heightField.setValue(_settings.load("split_height"))
+    _main_window.runProcessCheckbox.setChecked(_settings.load("run_postprocess"))
+    _main_window.runComicZipCheckbox.setChecked(_settings.load("run_comiczip"))
+    _main_window.parallelProcessingCheckbox.setChecked(
+        _settings.load("parallel_processing")
     )
-    if dialog.exec_() == QDialog.Accepted:
-        input_path = dialog.selectedFiles()[0] or ""
-        MainWindow.postProcessAppField.setText(input_path)
+    # Watermark settings
+    _main_window.watermarkFullpageEnabledCheckbox.setChecked(_settings.load("watermark_fullpage_enabled"))
+    _main_window.watermarkFullpagePathField.setText(_settings.load("watermark_fullpage_paths"))
+    _main_window.watermarkFullpageThresholdSpin.setValue(_settings.load("watermark_fullpage_threshold"))
+    _main_window.watermarkFullpageMaxSpin.setValue(_settings.load("watermark_fullpage_max_per_page"))
+    _main_window.watermarkFullpageInsertModeCheckbox.setChecked(_settings.load("watermark_fullpage_insert_mode"))
+    _main_window.watermarkFullpageMinAreaSpin.setValue(_settings.load("watermark_fullpage_min_area_height"))
+    _main_window.watermarkOverlayEnabledCheckbox.setChecked(_settings.load("watermark_overlay_enabled"))
+    _main_window.watermarkOverlayPathField.setText(_settings.load("watermark_overlay_paths"))
+    _main_window.watermarkOverlayPositionCombo.setCurrentIndex(_settings.load("watermark_overlay_position"))
+    _main_window.watermarkOverlayOpacitySpin.setValue(_settings.load("watermark_overlay_opacity"))
+    _main_window.watermarkOverlayScaleSpin.setValue(_settings.load("watermark_overlay_scale_pct"))
+    _main_window.watermarkOverlayMaxSpin.setValue(_settings.load("watermark_overlay_max_per_page"))
+    _main_window.watermarkHeaderEnabledCheckbox.setChecked(_settings.load("watermark_header_enabled"))
+    _main_window.watermarkHeaderPathField.setText(_settings.load("watermark_header_paths"))
+    _main_window.watermarkFooterEnabledCheckbox.setChecked(_settings.load("watermark_footer_enabled"))
+    _main_window.watermarkFooterPathField.setText(_settings.load("watermark_footer_paths"))
+    
+    # Initialize visibility based on checkbox states
+    _toggle_fullpage_options(_settings.load("watermark_fullpage_enabled"))
+    _toggle_overlay_options(_settings.load("watermark_overlay_enabled"))
+    _toggle_header_options(_settings.load("watermark_header_enabled"))
+    _toggle_footer_options(_settings.load("watermark_footer_enabled"))
 
 
-def browse_advanced_normal_folder():
-    dialog = QFileDialog(
-        MainWindow,
-        'Select normal layer folder',
-        FileMode=QFileDialog.FileMode.Directory,
+def _bind_signals() -> None:
+    w = _main_window
+    w.inputField.textChanged.connect(_input_field_changed)
+    w.browseButton.clicked.connect(_browse_location)
+    w.heightField.valueChanged.connect(
+        lambda: _settings.save("split_height", w.heightField.value())
     )
-    if dialog.exec_() == QDialog.Accepted:
-        input_path = dialog.selectedFiles()[0] or ""
-        MainWindow.advancedNormalField.setText(input_path)
-
-
-def browse_advanced_edited_folder():
-    dialog = QFileDialog(
-        MainWindow,
-        'Select edited layer folder',
-        FileMode=QFileDialog.FileMode.Directory,
+    w.runProcessCheckbox.stateChanged.connect(
+        lambda: _settings.save("run_postprocess", w.runProcessCheckbox.isChecked())
     )
-    if dialog.exec_() == QDialog.Accepted:
-        input_path = dialog.selectedFiles()[0] or ""
-        MainWindow.advancedEditedField.setText(input_path)
-
-
-def browse_advanced_psd_source_folder():
-    dialog = QFileDialog(
-        MainWindow,
-        'Select PSD source folder',
-        FileMode=QFileDialog.FileMode.Directory,
+    w.runComicZipCheckbox.stateChanged.connect(
+        lambda: _settings.save("run_comiczip", w.runComicZipCheckbox.isChecked())
     )
-    if dialog.exec_() == QDialog.Accepted:
-        input_path = dialog.selectedFiles()[0] or ""
-        MainWindow.advancedPsdSourceField.setText(input_path)
+    w.parallelProcessingCheckbox.stateChanged.connect(
+        lambda: _settings.save("parallel_processing", w.parallelProcessingCheckbox.isChecked())
+    )
+    w.installWaifu2xButton.clicked.connect(lambda: _waifu2x_action(repair=False))
+    w.repairWaifu2xButton.clicked.connect(lambda: _waifu2x_action(repair=True))
+    w.installContextMenuButton.clicked.connect(_install_context_menu)
+    w.removeContextMenuButton.clicked.connect(_remove_context_menu)
+    w.typeButton.clicked.connect(_apply_type_preset)
+    w.redrawButton.clicked.connect(_apply_redraw_preset)
+    w.startProcessButton.clicked.connect(_launch_process)
+    w.updateAppButton.clicked.connect(
+        lambda: _check_for_updates(silent_if_latest=False, auto_update=False)
+    )
+    # Watermark signals
+    w.watermarkFullpageEnabledCheckbox.stateChanged.connect(
+        lambda: [
+            _settings.save("watermark_fullpage_enabled", w.watermarkFullpageEnabledCheckbox.isChecked()),
+            _toggle_fullpage_options(w.watermarkFullpageEnabledCheckbox.isChecked())
+        ]
+    )
+    w.watermarkFullpagePathField.textChanged.connect(
+        lambda: _settings.save("watermark_fullpage_paths", w.watermarkFullpagePathField.text())
+    )
+    w.watermarkFullpageThresholdSpin.valueChanged.connect(
+        lambda val: _settings.save("watermark_fullpage_threshold", val)
+    )
+    w.watermarkFullpageMaxSpin.valueChanged.connect(
+        lambda val: _settings.save("watermark_fullpage_max_per_page", val)
+    )
+    w.watermarkFullpageInsertModeCheckbox.stateChanged.connect(
+        lambda: _settings.save("watermark_fullpage_insert_mode", w.watermarkFullpageInsertModeCheckbox.isChecked())
+    )
+    w.watermarkFullpageMinAreaSpin.valueChanged.connect(
+        lambda val: _settings.save("watermark_fullpage_min_area_height", val)
+    )
+    w.watermarkOverlayEnabledCheckbox.stateChanged.connect(
+        lambda: [
+            _settings.save("watermark_overlay_enabled", w.watermarkOverlayEnabledCheckbox.isChecked()),
+            _toggle_overlay_options(w.watermarkOverlayEnabledCheckbox.isChecked())
+        ]
+    )
+    w.watermarkOverlayPathField.textChanged.connect(
+        lambda: _settings.save("watermark_overlay_paths", w.watermarkOverlayPathField.text())
+    )
+    w.watermarkOverlayPositionCombo.currentIndexChanged.connect(
+        lambda idx: _settings.save("watermark_overlay_position", idx)
+    )
+    w.watermarkOverlayOpacitySpin.valueChanged.connect(
+        lambda val: _settings.save("watermark_overlay_opacity", val)
+    )
+    w.watermarkOverlayScaleSpin.valueChanged.connect(
+        lambda val: _settings.save("watermark_overlay_scale_pct", val)
+    )
+    w.watermarkOverlayMaxSpin.valueChanged.connect(
+        lambda val: _settings.save("watermark_overlay_max_per_page", val)
+    )
+    w.watermarkHeaderEnabledCheckbox.stateChanged.connect(
+        lambda: [
+            _settings.save("watermark_header_enabled", w.watermarkHeaderEnabledCheckbox.isChecked()),
+            _toggle_header_options(w.watermarkHeaderEnabledCheckbox.isChecked())
+        ]
+    )
+    w.watermarkHeaderPathField.textChanged.connect(
+        lambda: _settings.save("watermark_header_paths", w.watermarkHeaderPathField.text())
+    )
+    w.watermarkFooterEnabledCheckbox.stateChanged.connect(
+        lambda: [
+            _settings.save("watermark_footer_enabled", w.watermarkFooterEnabledCheckbox.isChecked()),
+            _toggle_footer_options(w.watermarkFooterEnabledCheckbox.isChecked())
+        ]
+    )
+    w.watermarkFooterPathField.textChanged.connect(
+        lambda: _settings.save("watermark_footer_paths", w.watermarkFooterPathField.text())
+    )
+    w.browseWatermarkFullpageButton.clicked.connect(lambda: _browse_images(w.watermarkFullpagePathField))
+    w.browseWatermarkOverlayButton.clicked.connect(lambda: _browse_images(w.watermarkOverlayPathField))
+    w.browseWatermarkHeaderButton.clicked.connect(lambda: _browse_images(w.watermarkHeaderPathField))
+    w.browseWatermarkFooterButton.clicked.connect(lambda: _browse_images(w.watermarkFooterPathField))
 
 
-def run_advanced_merge():
-    normal_dir = (MainWindow.advancedNormalField.text() or "").strip()
-    edited_dir = (MainWindow.advancedEditedField.text() or "").strip()
+def _browse_images(target_field) -> None:
+    """Open a file dialog to select one or more image files and append to the target field."""
+    files, _ = QFileDialog.getOpenFileNames(
+        _main_window,
+        "Selecionar imagens",
+        os.path.expanduser("~"),
+        "Images (*.png *.jpg *.jpeg *.webp *.bmp)",
+    )
+    if files:
+        existing = (target_field.text() or "").strip()
+        paths = [p for p in existing.split(";") if p.strip()] if existing else []
+        paths.extend(files)
+        target_field.setText(";".join(paths))
 
-    if not normal_dir or not os.path.isdir(normal_dir):
-        QMessageBox.warning(
-            MainWindow,
-            "Advanced PSD Merge",
-            "Please select a valid 'Normal layer' folder.",
-        )
-        return
-    if not edited_dir or not os.path.isdir(edited_dir):
-        QMessageBox.warning(
-            MainWindow,
-            "Advanced PSD Merge",
-            "Please select a valid 'Edited layer' folder.",
-        )
-        return
 
-    def console(message: str) -> None:
-        MainWindow.processConsoleField.append(message)
+def _input_field_changed() -> None:
+    path = (_main_window.inputField.text() or "").strip()
+    if path and os.path.exists(path):
+        _settings.save("last_browse_location", path)
 
-    merger = AdvancedPsdMerger(console_func=console)
+
+def _browse_location() -> None:
+    start = _settings.load("last_browse_location")
+    if not start or not os.path.exists(start):
+        start = os.path.expanduser("~")
+    dialog = QFileDialog(_main_window, "Select Input Directory Files", start)
+    dialog.setFileMode(QFileDialog.FileMode.Directory)
+    if dialog.exec() == QDialog.DialogCode.Accepted:
+        selected = dialog.selectedFiles()[0] or ""
+        _main_window.inputField.setText(selected)
+
+
+def _save_preset(values: dict) -> None:
+    """Persist a dict of setting key→value pairs and sync the height spinner."""
+    for key, val in values.items():
+        _settings.save(key, val)
+    if "split_height" in values:
+        _main_window.heightField.setValue(values["split_height"])
+
+
+def _apply_type_preset() -> None:
+    _save_preset({
+        "output_type": ".webp",
+        "lossy_quality": 100,
+        "split_height": 15000,
+        "enforce_type": 2,
+        "enforce_width": 800,
+        "detector_type": 0,
+        "postprocess_args": WAIFU_ARGS_WEBP,
+    })
+
+
+def _apply_redraw_preset() -> None:
+    _save_preset({
+        "output_type": ".jpg",
+        "lossy_quality": 100,
+        "split_height": 15000,
+        "enforce_type": 2,
+        "enforce_width": 800,
+        "detector_type": 1,
+        "sensitivity": 100,
+        "scan_step": 10,
+        "ignorable_pixels": 0,
+        "postprocess_args": WAIFU_ARGS_JPG,
+    })
+
+
+def _download_and_extract_waifu2x(*, repair: bool) -> None:
+    if repair and os.path.isdir(WAIFU_INSTALL_DIR):
+        shutil.rmtree(WAIFU_INSTALL_DIR, ignore_errors=True)
+
+    os.makedirs(WAIFU_INSTALL_DIR, exist_ok=True)
+
+    tmp_dir = tempfile.mkdtemp(prefix="medstitch-waifu2x-")
+    zip_path = os.path.join(tmp_dir, "Waifu2X.zip")
     try:
-        created = merger.merge_folders_to_psd(
-            normal_dir,
-            edited_dir,
-            yield_func=QApplication.processEvents,
+        urllib.request.urlretrieve(WAIFU_ZIP_URL, zip_path)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(WAIFU_INSTALL_DIR)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    if not os.path.isfile(WAIFU_EXE_PATH):
+        raise FileNotFoundError(f"Waifu2X exe not found at: {WAIFU_EXE_PATH}")
+
+    _settings.save("postprocess_app", WAIFU_EXE_PATH)
+
+
+def _waifu2x_action(*, repair: bool) -> None:
+    label = "Reparado" if repair else "Instalado com sucesso!"
+    try:
+        _download_and_extract_waifu2x(repair=repair)
+        QMessageBox.information(_main_window, "Waifu2X", f"Waifu2X {label}")
+    except Exception:
+        action = "reparar" if repair else "instalar"
+        QMessageBox.critical(_main_window, "Waifu2X", f"Falha ao {action}")
+
+
+def _pythonw_path() -> str:
+    exe = sys.executable
+    if exe.lower().endswith("python.exe"):
+        pythonw = exe[: -len("python.exe")] + "pythonw.exe"
+        if os.path.isfile(pythonw):
+            return pythonw
+    return exe
+
+
+def _is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def _set_reg_command(
+    root_path: str, name: str, command: str, icon_val: str | None = None,
+) -> None:
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, root_path) as key:
+        winreg.SetValueEx(key, None, 0, winreg.REG_SZ, name)
+        if icon_val:
+            winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, icon_val)
+    with winreg.CreateKey(
+        winreg.HKEY_CURRENT_USER, root_path + "\\command"
+    ) as cmd_key:
+        winreg.SetValueEx(cmd_key, None, 0, winreg.REG_SZ, command)
+
+
+def _build_context_command(
+    base_exe: str,
+    preset: str | None,
+    waifu: bool,
+    watermark: bool | None,
+    autostart: bool,
+    include_input: bool,
+    toggle_watermark: bool,
+) -> str:
+    parts = [f'"{base_exe}"']
+    if include_input:
+        parts.append('--input "%V"')
+    if preset:
+        parts.append(f"--preset {preset}")
+    if waifu:
+        parts.append("--waifu")
+    if toggle_watermark:
+        parts.append("--toggle-watermark")
+    if watermark is not None:
+        parts.append(f"--set-watermark {'on' if watermark else 'off'}")
+    if autostart:
+        parts.append("--autostart")
+    return " ".join(parts)
+
+
+def _install_context_menu() -> None:
+    try:
+        icon_val: str | None = None
+        if _is_frozen():
+            base_exe = sys.executable
+            icon_val = f"{base_exe},0"
+        else:
+            if not os.path.isfile(_CONTEXT_MENU_GUI):
+                raise FileNotFoundError(f"Missing GUI script: {_CONTEXT_MENU_GUI}")
+            python = _pythonw_path()
+            base_exe = f'{python}" "{_CONTEXT_MENU_GUI}'
+            if os.path.isfile(_ICON_FILE):
+                icon_val = _ICON_FILE
+
+        # Cleanup old product naming to avoid duplicate context menus.
+        for legacy_key in _LEGACY_REG_BASE_KEYS:
+            _delete_reg_tree(winreg.HKEY_CURRENT_USER, legacy_key)
+
+        for base in _REG_BASE_KEYS:
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, base) as k:
+                winreg.SetValueEx(k, "MUIVerb", 0, winreg.REG_SZ, APP_NAME)
+                winreg.SetValueEx(k, "SubCommands", 0, winreg.REG_SZ, "")
+                if icon_val:
+                    winreg.SetValueEx(k, "Icon", 0, winreg.REG_SZ, icon_val)
+
+            # Ensure old entries are removed when menu layout changes.
+            _delete_reg_tree(winreg.HKEY_CURRENT_USER, base + "\\shell")
+
+            for reg_name, label, preset, waifu, watermark, autostart, include_input in _CONTEXT_MENU_ENTRIES:
+                effective_label = _watermark_context_action_label() if reg_name == "WatermarkToggle" else label
+                cmd = _build_context_command(
+                    base_exe,
+                    preset,
+                    waifu,
+                    watermark,
+                    autostart,
+                    include_input,
+                    reg_name == "WatermarkToggle",
+                )
+                _set_reg_command(
+                    base + "\\shell\\" + reg_name, effective_label, cmd, icon_val,
+                )
+
+        QMessageBox.information(
+            _main_window,
+            APP_NAME,
+            "Menu de contexto instalado!\n\n"
+            "Clique com o botão direito em uma pasta para ver as opções.",
         )
     except Exception as exc:
         QMessageBox.critical(
-            MainWindow,
-            "Advanced PSD Merge",
-            f"An error occurred while merging to PSD: {exc}",
+            _main_window, APP_NAME,
+            f"Falha ao adicionar no Registro: {exc}",
+        )
+
+
+def _delete_reg_tree(root: int, sub_key: str) -> None:
+    """Recursively delete a registry key tree (best-effort)."""
+    try:
+        with winreg.OpenKey(
+            root, sub_key, 0, winreg.KEY_READ | winreg.KEY_WRITE
+        ) as k:
+            while True:
+                try:
+                    child = winreg.EnumKey(k, 0)
+                except OSError:
+                    break
+                _delete_reg_tree(root, sub_key + "\\" + child)
+    except FileNotFoundError:
+        return
+    winreg.DeleteKey(root, sub_key)
+
+
+def _remove_context_menu() -> None:
+    try:
+        for key in (*_REG_BASE_KEYS, *_LEGACY_REG_BASE_KEYS):
+            _delete_reg_tree(winreg.HKEY_CURRENT_USER, key)
+        QMessageBox.information(
+            _main_window, APP_NAME, "Menu de contexto removido!",
+        )
+    except Exception as exc:
+        QMessageBox.critical(
+            _main_window, APP_NAME,
+            f"Falha ao remover do Registro: {exc}",
+        )
+
+
+def _update_progress(percentage: int, message: str) -> None:
+    _main_window.statusField.setText(message)
+    _main_window.statusProgressBar.setValue(percentage)
+
+
+def _update_console(message: str) -> None:
+    _main_window.processConsoleField.append(message)
+
+
+def _version_tuple(version: str) -> tuple[int, ...]:
+    cleaned = (version or "").strip()
+    if cleaned.lower().startswith("v"):
+        cleaned = cleaned[1:]
+    parts = [int(part) for part in re.findall(r"\d+", cleaned)]
+    if not parts:
+        return (0,)
+    return tuple(parts)
+
+
+def _fetch_latest_release() -> dict:
+    request = urllib.request.Request(
+        GITHUB_API_LATEST_URL,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": APP_NAME,
+        },
+    )
+
+    with urllib.request.urlopen(request, timeout=10) as response:
+        payload = response.read().decode("utf-8")
+        return json.loads(payload)
+
+
+def _pick_release_zip_asset_url(release_data: dict) -> str | None:
+    assets = release_data.get("assets") or []
+    for asset in assets:
+        name = str(asset.get("name") or "").lower()
+        url = str(asset.get("browser_download_url") or "").strip()
+        if name.endswith(".zip") and url:
+            return url
+    return None
+
+
+def _download_file(url: str, target_path: str) -> None:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/octet-stream",
+            "User-Agent": APP_NAME,
+        },
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        with open(target_path, "wb") as out:
+            shutil.copyfileobj(response, out)
+
+
+def _run_external_updater(*, staged_dir: str, app_dir: str, exe_path: str) -> None:
+    updater_cmd = os.path.join(staged_dir, "apply_update.cmd")
+    current_pid = os.getpid()
+
+    lines = [
+        "@echo off",
+        "setlocal",
+        f"set TARGET_PID={current_pid}",
+        f"set SOURCE_DIR={staged_dir}",
+        f"set APP_DIR={app_dir}",
+        f"set EXE_PATH={exe_path}",
+        ":wait_loop",
+        'tasklist /FI "PID eq %TARGET_PID%" | findstr /I "%TARGET_PID%" >nul',
+        "if %ERRORLEVEL%==0 (",
+        "  timeout /t 1 /nobreak >nul",
+        "  goto wait_loop",
+        ")",
+        'robocopy "%SOURCE_DIR%\\payload" "%APP_DIR%" /E /R:3 /W:1 /NFL /NDL /NJH /NJS >nul',
+        'start "" "%EXE_PATH%"',
+        'start "" /b cmd /c "timeout /t 4 /nobreak >nul & rmdir /s /q \"%SOURCE_DIR%\""',
+    ]
+    with open(updater_cmd, "w", encoding="utf-8", newline="\r\n") as f:
+        f.write("\r\n".join(lines) + "\r\n")
+
+    subprocess.Popen(
+        ["cmd", "/c", updater_cmd],
+        creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
+        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        close_fds=True,
+    )
+
+
+def _self_update_from_release(release_data: dict) -> tuple[bool, str]:
+    if not _is_frozen():
+        return False, "Autoatualizacao automatica so esta disponivel no app compilado (.exe)."
+
+    asset_url = _pick_release_zip_asset_url(release_data)
+    if not asset_url:
+        return False, "Nenhum arquivo .zip foi encontrado na release mais recente."
+
+    app_dir = os.path.dirname(sys.executable)
+    exe_path = sys.executable
+    if not os.path.isdir(app_dir) or not os.path.isfile(exe_path):
+        return False, "Falha ao localizar o diretorio do app para atualizar."
+
+    update_root = tempfile.mkdtemp(prefix="medstitch-update-")
+    payload_dir = os.path.join(update_root, "payload")
+    os.makedirs(payload_dir, exist_ok=True)
+    zip_path = os.path.join(update_root, "update.zip")
+
+    try:
+        _download_file(asset_url, zip_path)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(payload_dir)
+    except Exception as exc:
+        shutil.rmtree(update_root, ignore_errors=True)
+        return False, f"Falha ao baixar/extrair a atualizacao: {exc}"
+
+    _run_external_updater(staged_dir=update_root, app_dir=app_dir, exe_path=exe_path)
+    return True, "Atualizacao baixada. O app sera reiniciado com a nova versao."
+
+
+def _check_for_updates(*, silent_if_latest: bool = False, auto_update: bool = False) -> None:
+    try:
+        latest_release = _fetch_latest_release()
+    except Exception:
+        if silent_if_latest:
+            return
+        QMessageBox.warning(
+            _main_window,
+            "Atualizacao",
+            "Nao foi possivel verificar atualizacoes agora.",
         )
         return
 
+    latest_tag = str(latest_release.get("tag_name") or "").strip()
+    latest_name = str(latest_release.get("name") or latest_tag or "ultima release")
+    latest_url = str(latest_release.get("html_url") or GITHUB_RELEASES_URL)
+
+    if _version_tuple(latest_tag) > _version_tuple(APP_VERSION):
+        if auto_update:
+            ok, message = _self_update_from_release(latest_release)
+            if ok:
+                QMessageBox.information(_main_window, "Atualizacao automatica", message)
+                QTimer.singleShot(250, QApplication.quit)
+            elif not silent_if_latest:
+                QMessageBox.warning(_main_window, "Atualizacao", message)
+            return
+
+        answer = QMessageBox.question(
+            _main_window,
+            "Atualizacao disponivel",
+            "Nova versao encontrada!\n\n"
+            f"Atual: {APP_VERSION}\n"
+            f"Disponivel: {latest_tag or latest_name}\n\n"
+            "Deseja baixar e aplicar a atualizacao agora?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            ok, message = _self_update_from_release(latest_release)
+            if ok:
+                QMessageBox.information(_main_window, "Atualizacao", message)
+                QTimer.singleShot(250, QApplication.quit)
+            else:
+                QMessageBox.warning(_main_window, "Atualizacao", message)
+        return
+
+    if silent_if_latest:
+        return
+
     QMessageBox.information(
-        MainWindow,
-        "Advanced PSD Merge",
-        f"Finished. Created {created} PSD file(s).",
+        _main_window,
+        "Atualizacao",
+        f"Voce ja esta na versao mais recente ({APP_VERSION}).",
     )
 
 
-def advanced_source_type_changed():
-    """Show/hide Advanced controls based on selected source type.
+def _launch_process() -> None:
+    if _process_thread is None:
+        return
 
-    Index 0: Two folders (Normal + Edited)
-    Index 1: PSD source (folder of PSDs)
-    """
-    index = MainWindow.advancedSourceTypeDropdown.currentIndex()
-    two_folders = index == 0
-    psd_mode = index == 1
+    if _process_thread.isRunning():
+        return
 
-    # Two-folders controls
-    MainWindow.advancedNormalLabel.setHidden(not two_folders)
-    MainWindow.advancedNormalField.setHidden(not two_folders)
-    MainWindow.browseAdvancedNormalButton.setHidden(not two_folders)
-    MainWindow.advancedEditedLabel.setHidden(not two_folders)
-    MainWindow.advancedEditedField.setHidden(not two_folders)
-    MainWindow.browseAdvancedEditedButton.setHidden(not two_folders)
-    # PSD-source controls
-    MainWindow.advancedPsdSourceLabel.setHidden(not psd_mode)
-    MainWindow.advancedPsdSourceField.setHidden(not psd_mode)
-    MainWindow.browseAdvancedPsdSourceButton.setHidden(not psd_mode)
+    _main_window.processConsoleField.clear()
 
+    input_path = (_main_window.inputField.text() or "").strip()
+    output_path = input_path + OUTPUT_SUFFIX if input_path else ""
 
-def postprocess_app_changed():
-    settings.save("postprocess_app", MainWindow.postProcessAppField.text())
-
-
-def postprocess_args_changed():
-    settings.save("postprocess_args", MainWindow.postProcessArgsField.text())
-
-
-def update_process_progress(percentage: int, message: str):
-    MainWindow.statusField.setText(message)
-    MainWindow.statusProgressBar.setValue(percentage)
-
-
-def update_postprocess_console(message: str):
-    MainWindow.processConsoleField.append(message)
-
-
-def show_warning_dialog(title: str, message: str):
-    QMessageBox.warning(MainWindow, title, message)
-
-
-def show_error_dialog(title: str, message: str):
-    QMessageBox.critical(MainWindow, title, message)
-
-
-def show_info_dialog(title: str, message: str):
-    QMessageBox.information(MainWindow, title, message)
-
-
-def launch_process_async():
-    if processThread.isRunning():
-        return  # Prevent starting multiple times
-    
-    MainWindow.processConsoleField.clear()
-    
-    # Configure thread with current UI values
-    processThread.configure(
-        input_path=(MainWindow.inputField.text() or "").strip(),
-        output_path=(MainWindow.outputField.text() or "").strip(),
-        advanced_index=MainWindow.advancedSourceTypeDropdown.currentIndex(),
-        advanced_normal_dir=(MainWindow.advancedNormalField.text() or "").strip(),
-        advanced_edited_dir=(MainWindow.advancedEditedField.text() or "").strip(),
-        advanced_psd_source_dir=(MainWindow.advancedPsdSourceField.text() or "").strip(),
-    )
-    
-    processThread.start()
+    _process_thread.configure(input_path=input_path, output_path=output_path)
+    _process_thread.start()
