@@ -1,13 +1,9 @@
-name: Build MedStitch
+name: Release MedStitch
 
 on:
   push:
-    branches:
-      - dev
-      - main
     tags:
       - "v*"
-  workflow_dispatch:
 
 concurrency:
   group: build-${{ github.ref }}
@@ -37,20 +33,7 @@ jobs:
       - name: Generate build version file
         shell: bash
         run: |
-          VERSION=""
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            TITLE="${{ github.event.head_commit.message }}"
-            TITLE="${TITLE%%$'\n'*}"
-            if [[ "$TITLE" =~ (^|[^0-9])v?([0-9]+\.[0-9]+\.[0-9]+)([^0-9]|$) ]]; then
-              VERSION="${BASH_REMATCH[2]}"
-            fi
-          fi
-
-          if [[ -z "$VERSION" ]]; then
-            VERSION="0.0.0"
-          fi
+          VERSION="${GITHUB_REF_NAME#v}"
 
           echo "APP_BUILD_VERSION = \"$VERSION\"" > gui/build_version.py
           cat gui/build_version.py
@@ -67,7 +50,6 @@ jobs:
           retention-days: 14
 
   publish-release:
-    if: startsWith(github.ref, 'refs/tags/v')
     needs: build-windows
     runs-on: windows-latest
     permissions:
