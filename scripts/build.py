@@ -62,6 +62,11 @@ def main() -> None:
         "onnxruntime",
         "tensorflow",
         "jax",
+        # Qt binding conflict: PySide6 is the only one we use
+        "PyQt6",
+        "PyQt6.sip",
+        "PyQt5",
+        "PyQt5.sip",
     ]
 
     # Hidden imports to avoid slow analysis and potential missing modules
@@ -91,8 +96,6 @@ def main() -> None:
         str(work_dir),
         "--specpath",
         str(work_dir),
-        # Optimization: parallel compilation (3x-5x faster on multi-core)
-        "-j4",
         # Optimization: bytecode optimization (removes assertions + docstrings, ~10% size reduction)
         "--optimize",
         "2",
@@ -120,7 +123,6 @@ def main() -> None:
     print(f"[Build] Dist:    {dist_dir}")
     print(f"[Build] Workdir: {work_dir}")
     print("[Build] Optimizations enabled:")
-    print("[Build]   - Parallel compilation (-j4)")
     print("[Build]   - Bytecode optimization (--optimize 2)")
     print("[Build]   - Explicit hidden imports for faster analysis")
     print("[Build]   - Windows DLL exclusions")
