@@ -2,9 +2,6 @@ name: Build & Release MedStitch
 
 on:
   push:
-    branches:
-      - dev
-      - main
     tags:
       - "v*"
   workflow_dispatch:
