@@ -168,6 +168,9 @@ def _run_watermark(
         "overlay_assets": 0,
         "header_assets": 0,
         "footer_assets": 0,
+        "workers_requested": 0,
+        "workers_used": 0,
+        "parallel_used": False,
     }
     _wm_run_log(
         console_func,
@@ -249,6 +252,9 @@ def _run_watermark(
         "header_images": header_paths,
         "add_footer": snap.watermark_footer_enabled,
         "footer_images": footer_paths,
+        "watermark_max_workers": int(
+            os.getenv("SMARTSTITCH_WATERMARK_WORKERS", os.getenv("MEDSTITCH_WATERMARK_WORKERS", "0")) or "0"
+        ) or None,
     }
 
     _wm_run_log(
@@ -264,6 +270,10 @@ def _run_watermark(
         apply_started = time()
         wm_service.process_chapter_folder(output_dir, wm_settings)
         wm_stage_seconds["watermark_apply_images"] = time() - apply_started
+        run_info = wm_service.last_run_info
+        wm_details["workers_requested"] = int(run_info.get("requested_workers", 0) or 0)
+        wm_details["workers_used"] = int(run_info.get("used_workers", 0) or 0)
+        wm_details["parallel_used"] = bool(run_info.get("parallel", False))
     finally:
         release_started = time()
         wm_service.close_watermarks()

@@ -16,10 +16,13 @@ class GlobalLogger:
         log_filename = current_date.strftime('log-%Y-%m-%d.log')
         log_filename = os.path.join(LOG_REL_DIR, log_filename)
 
-        log_level = logging.DEBUG
+        debug_enabled = os.getenv("SMARTSTITCH_DEBUG_LOG", "0").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+        log_level = logging.DEBUG if debug_enabled else logging.INFO
         log_format = '%(levelname)s:%(asctime)s:%(message)s'
         logging.basicConfig(format=log_format, filename=log_filename, level=log_level)
-        logging.debug('GlobalLogger:Logger Initialized')
+        logging.info('GlobalLogger:Logger Initialized')
         # Removes the pil logging from polluting the Debug Level.
         pil_logger = logging.getLogger('PIL')
         pil_logger.setLevel(logging.INFO)
@@ -41,6 +44,10 @@ def logFunc(func=None, inclass=False):
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
+        logger = logging.getLogger()
+        if not logger.isEnabledFor(logging.DEBUG):
+            return func(*args, **kwargs)
+
         caller_class = "GlobalLogger"
         args_repr = [repr(a) for a in args]
         if inclass:

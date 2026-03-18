@@ -15,6 +15,20 @@ from core.services.global_logger import logFunc
 Block = Tuple[int, int, int, bool]  # (x, y, height, is_white)
 Position = Tuple[int, int]  # (x, y)
 _WM_DEBUG_ENABLED = os.getenv("SMARTSTITCH_WM_DEBUG", "0").strip().lower() in {"1", "true", "yes", "on"}
+_WM_WORKERS_LIMIT = 32
+_WM_WORKERS_DEFAULT = min(
+    _WM_WORKERS_LIMIT,
+    max(4, int(os.getenv("SMARTSTITCH_WATERMARK_WORKERS", str((os.cpu_count() or 8) * 2)))),
+)
+_WM_FAST_SAVE = os.getenv("SMARTSTITCH_WM_FAST_SAVE", "1").strip().lower() in {"1", "true", "yes", "on"}
+_WM_JPEG_SUBSAMPLING = int(os.getenv("SMARTSTITCH_WM_JPEG_SUBSAMPLING", "2" if _WM_FAST_SAVE else "0"))
+_WM_WEBP_METHOD = int(os.getenv("SMARTSTITCH_WM_WEBP_METHOD", "0" if _WM_FAST_SAVE else "4"))
+_WM_PNG_COMPRESS_LEVEL = int(os.getenv("SMARTSTITCH_WM_PNG_COMPRESS_LEVEL", "0"))
+_WM_FULLPAGE_FAST_SELECT = os.getenv("SMARTSTITCH_WM_FULLPAGE_FAST_SELECT", "1").strip().lower() in {"1", "true", "yes", "on"}
+_WM_FULLPAGE_INSERT_DEFAULT = os.getenv(
+    "SMARTSTITCH_WM_FULLPAGE_INSERT",
+    "0" if _WM_FAST_SAVE else "1",
+).strip().lower() in {"1", "true", "yes", "on"}
 _RESAMPLE_LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
 
 
@@ -44,6 +58,20 @@ class WatermarkService:
         self._index_fullpage: int = 0
         self._index_overlay: int = 0
         self._index_lock = threading.Lock()
+        # Cache de watermarks redimensionados keyed por (id(wm), target_w, target_h)
+        # Evita resize LANCZOS repetido para cada imagem do capítulo
+        self._resize_cache: dict[tuple, Image.Image] = {}
+        self._resize_lock = threading.Lock()
+        self._last_run_info: dict[str, int | bool] = {
+            "requested_workers": 0,
+            "used_workers": 0,
+            "parallel": False,
+            "total_images": 0,
+        }
+
+    @property
+    def last_run_info(self) -> dict[str, int | bool]:
+        return dict(self._last_run_info)
 
     def _dbg(self, message: str) -> None:
         """Verbose debug logger for watermark diagnostics."""
@@ -125,7 +153,22 @@ class WatermarkService:
         self._watermarks_overlay = []
         self._index_fullpage = 0
         self._index_overlay = 0
-    
+        with self._resize_lock:
+            for _cached in self._resize_cache.values():
+                _safe_close(_cached)
+            self._resize_cache.clear()
+
+    def _get_resized_wm(self, watermark: Image.Image, target_w: int, target_h: int) -> Image.Image:
+        """Retorna watermark redimensionado, usando cache para evitar Lanczos repetido."""
+        key = (id(watermark), target_w, target_h)
+        cached = self._resize_cache.get(key)
+        if cached is not None:
+            return cached
+        with self._resize_lock:
+            if key not in self._resize_cache:
+                self._resize_cache[key] = watermark.resize((target_w, target_h), _RESAMPLE_LANCZOS)
+            return self._resize_cache[key]
+
     def get_next_watermark_fullpage(self) -> Optional[Image.Image]:
         """Get next fullpage watermark in cyclic order."""
         with self._index_lock:
@@ -168,78 +211,34 @@ class WatermarkService:
             f"threshold={threshold}"
         )
         grayscale = image.convert("L")
-        img_array = np.array(grayscale)
-        blocks = []
-        
-        # Procura faixas horizontais uniformes (toda a largura da imagem)
-        step_size = max(10, wm_height // 10)
-        self._dbg(f"find_uniform_blocks_fullpage: step_size={step_size}")
-        y = 0
-        
-        while y < height - step_size:
-            # Verifica uma faixa horizontal completa (toda a largura)
-            end_y = min(y + step_size, height)
-            region = img_array[y:end_y, :]
-            
-            # Verificação estrita: faixa totalmente branca (255) ou preta (0)
-            min_val = int(np.min(region))
-            max_val = int(np.max(region))
-            is_white = min_val == 255 and max_val == 255
-            is_black = min_val == 0 and max_val == 0
-            self._dbg(
-                f"scan band y={y}:{end_y}, min={min_val}, max={max_val}, "
-                f"is_white={is_white}, is_black={is_black}"
-            )
-            
-            if is_white or is_black:
-                # Encontrou início de um bloco uniforme
-                block_start_y = y
-                block_is_white = is_white
-                
-                # Expande para encontrar o fim do bloco
-                test_y = y + step_size
-                while test_y < height:
-                    test_end_y = min(test_y + step_size, height)
-                    test_region = img_array[test_y:test_end_y, :]
-                    
-                    test_min = int(np.min(test_region))
-                    test_max = int(np.max(test_region))
-
-                    if block_is_white:
-                        still_uniform = test_min == 255 and test_max == 255
-                    else:
-                        still_uniform = test_min == 0 and test_max == 0
-                    self._dbg(
-                        f"expand block start_y={block_start_y}: test_y={test_y}:{test_end_y}, "
-                        f"test_min={test_min}, test_max={test_max}, still_uniform={still_uniform}"
-                    )
-                    
-                    if not still_uniform:
-                        break
-                    test_y += step_size
-                
-                block_end_y = test_y
-                block_height = block_end_y - block_start_y
-                
-                # Adiciona bloco (x=0 para fullpage, toda a largura)
-                if block_height >= wm_height:
-                    blocks.append((0, block_start_y, block_height, block_is_white))
-                    self._dbg(
-                        f"accepted block: y={block_start_y}, height={block_height}, "
-                        f"type={'white' if block_is_white else 'black'}"
-                    )
-                else:
-                    self._dbg(
-                        f"rejected block (height < wm_height): y={block_start_y}, "
-                        f"height={block_height}, wm_height={wm_height}"
-                    )
-                
-                # Pula para após este bloco
-                y = block_end_y
-            else:
-                y += step_size
-        
+        img_array = np.array(grayscale, dtype=np.uint8)
         grayscale.close()
+
+        # Vetorizado: min/max por linha em 2 operações numpy vs ~H/step chamadas no loop original
+        row_min = img_array.min(axis=1)   # shape (height,)
+        row_max = img_array.max(axis=1)   # shape (height,)
+        is_white_row = (row_min == 255) & (row_max == 255)
+        is_black_row = (row_min == 0) & (row_max == 0)
+        is_uniform = is_white_row | is_black_row
+
+        # Encontra runs contíguas usando np.diff (sem loop Python por linha)
+        padded = np.zeros(len(is_uniform) + 2, dtype=np.int8)
+        padded[1:-1] = is_uniform.astype(np.int8)
+        changes = np.diff(padded)
+        run_starts = np.where(changes == 1)[0]
+        run_ends = np.where(changes == -1)[0]
+
+        blocks = []
+        for start, end in zip(run_starts, run_ends):
+            block_h = int(end - start)
+            if block_h >= wm_height:
+                color_is_white = bool(is_white_row[start])
+                blocks.append((0, int(start), block_h, color_is_white))
+                self._dbg(
+                    f"accepted block: y={int(start)}, height={block_h}, "
+                    f"type={'white' if color_is_white else 'black'}"
+                )
+
         self._dbg(f"find_uniform_blocks_fullpage done: total_blocks={len(blocks)}")
         return blocks
     
@@ -450,7 +449,7 @@ class WatermarkService:
         require_centered = settings.get('watermark_fullpage_require_centered_space', True)
         
         # Insert mode settings
-        insert_mode = settings.get('watermark_fullpage_insert_mode', True)
+        insert_mode = settings.get('watermark_fullpage_insert_mode', _WM_FULLPAGE_INSERT_DEFAULT)
         min_area_height = settings.get('watermark_fullpage_min_area_height', 400)
         self._dbg(
             "add_watermark_fullpage settings: "
@@ -486,7 +485,7 @@ class WatermarkService:
             )
             return None
             
-        resized_watermark = watermark.resize((wm_width, wm_height), _RESAMPLE_LANCZOS)
+        resized_watermark = self._get_resized_wm(watermark, wm_width, wm_height)
         self._dbg(f"fullpage watermark resized to {resized_watermark.size}")
         
         # Encontra todos os blocos uniformes
@@ -495,7 +494,6 @@ class WatermarkService:
         
         if not blocks:
             self._dbg("add_watermark_fullpage aborted: no uniform blocks found")
-            resized_watermark.close()
             return None
         
         selected_blocks = []
@@ -509,13 +507,12 @@ class WatermarkService:
 
         if max_per_page_int <= 0:
             self._dbg(f"add_watermark_fullpage aborted: max_per_page_int={max_per_page_int}")
-            resized_watermark.close()
             return None
 
         # blocks format: (x, y, block_height, is_white_block)
-        # Filter blocks that have sufficient space for watermark with spacing
-        candidates: List[Tuple[float, Block]] = []
-        gray = image.convert("L")
+        # Filter blocks that have sufficient space for watermark with spacing.
+        # Fast path avoids expensive per-block crop/stat analysis.
+        valid_blocks: List[Block] = []
         for block in blocks:
             block_x, block_y, block_height, is_white = block
             self._dbg(
@@ -542,41 +539,21 @@ class WatermarkService:
                     f"require_centered={require_centered})"
                 )
                 continue
-            
-            # Use watermark dimensions for region analysis
-            crop_height = min(block_height, wm_height)
-            if crop_height <= 0:
-                self._dbg(f"block rejected: crop_height={crop_height}")
-                continue
-            
-            region = gray.crop((block_x, block_y, block_x + wm_width, block_y + crop_height))
-            try:
-                stat = ImageStat.Stat(region)
-                # Use mean as score if stddev fails (uniform regions)
-                try:
-                    score = float(stat.stddev[0])
-                except (ValueError, ZeroDivisionError):
-                    score = float(stat.mean[0])
-            except Exception:
-                score = 0.0
-            finally:
-                region.close()
-            
-            candidates.append((score, block))
-            self._dbg(f"block accepted as candidate: score={score:.4f}, block={block}")
-        gray.close()
 
-        # Sort by score (best blocks = lowest stddev first)
-        candidates.sort(key=lambda t: t[0])
-        selected_blocks = [b for _, b in candidates][:max_per_page_int]
+            valid_blocks.append(block)
+
+        if _WM_FULLPAGE_FAST_SELECT:
+            valid_blocks.sort(key=lambda b: b[2], reverse=True)
+            selected_blocks = valid_blocks[:max_per_page_int]
+        else:
+            selected_blocks = valid_blocks[:max_per_page_int]
         self._dbg(
-            f"candidate_count={len(candidates)}, selected_blocks={len(selected_blocks)}, "
+            f"candidate_count={len(valid_blocks)}, selected_blocks={len(selected_blocks)}, "
             f"max_per_page_int={max_per_page_int}"
         )
         
         if not selected_blocks:
             self._dbg("add_watermark_fullpage aborted: no selected blocks after filtering")
-            resized_watermark.close()
             return None
         
         # Insert mode: cut and insert watermark in the middle of uniform area
@@ -632,7 +609,6 @@ class WatermarkService:
                     f"watermark inserted at y={insert_y}; new_result_size={result.size}"
                 )
             
-            resized_watermark.close()
             if not inserted_any:
                 self._dbg("insert_mode finished with no insertions")
                 _safe_close(result)
@@ -664,7 +640,6 @@ class WatermarkService:
             # Combina com a imagem original
             result = Image.alpha_composite(image.convert("RGBA"), watermark_layer)
             
-            resized_watermark.close()
             watermark_layer.close()
             self._dbg(f"overlay-on-blocks mode done: result_size={result.size}")
             
@@ -735,7 +710,7 @@ class WatermarkService:
             if wm_height <= 0:
                 continue
 
-            resized_watermark = watermark.resize((wm_width, wm_height), _RESAMPLE_LANCZOS)
+            resized_watermark = self._get_resized_wm(watermark, wm_width, wm_height)
 
             position = None
             if position_type == WATERMARK_OVERLAY_POSITION.AUTO:
@@ -758,7 +733,6 @@ class WatermarkService:
                     position = (margin, margin)
 
             if not position:
-                resized_watermark.close()
                 break
 
             wm = resized_watermark.copy()
@@ -775,7 +749,6 @@ class WatermarkService:
             modified = True
 
             wm.close()
-            resized_watermark.close()
             watermark_layer.close()
 
         if not modified:
@@ -848,11 +821,20 @@ class WatermarkService:
                 # Salva a nova imagem com qualidade máxima
                 ext = os.path.splitext(image_path)[1].lower()
                 if ext in ('.jpg', '.jpeg'):
-                    new_img.save(image_path, quality=lossy_quality, subsampling=0)
+                    new_img.save(
+                        image_path,
+                        quality=lossy_quality,
+                        subsampling=max(0, min(2, _WM_JPEG_SUBSAMPLING)),
+                        optimize=False,
+                    )
                 elif ext == '.webp':
-                    new_img.save(image_path, quality=lossy_quality, method=4)
+                    new_img.save(
+                        image_path,
+                        quality=lossy_quality,
+                        method=max(0, min(6, _WM_WEBP_METHOD)),
+                    )
                 elif ext == '.png':
-                    new_img.save(image_path, compress_level=0)
+                    new_img.save(image_path, compress_level=max(0, min(9, _WM_PNG_COMPRESS_LEVEL)))
                 else:
                     new_img.save(image_path)
                 new_img.close()
@@ -899,8 +881,19 @@ class WatermarkService:
         total_images = len(images)
         fullpage_enabled = settings.get('watermark_fullpage_enabled', False)
         overlay_enabled = settings.get('watermark_overlay_enabled', False)
-        max_workers = int(settings.get('watermark_max_workers', min(4, max(1, os.cpu_count() or 1))))
-        max_workers = max(1, min(max_workers, total_images))
+        requested_workers_raw = settings.get("watermark_max_workers", _WM_WORKERS_DEFAULT)
+        try:
+            requested_workers = int(requested_workers_raw)
+        except (TypeError, ValueError):
+            requested_workers = _WM_WORKERS_DEFAULT
+
+        max_workers = max(1, min(requested_workers, _WM_WORKERS_LIMIT, total_images))
+        self._last_run_info = {
+            "requested_workers": requested_workers,
+            "used_workers": max_workers,
+            "parallel": max_workers > 1,
+            "total_images": total_images,
+        }
         self._dbg(
             f"process_chapter_folder start: chapter='{chapter_path}', total_images={total_images}, "
             f"fullpage_enabled={fullpage_enabled}, overlay_enabled={overlay_enabled}, "
@@ -922,35 +915,24 @@ class WatermarkService:
             except Exception as e:
                 return i, image_name, e
 
-        # Process watermarks on all images (parallel when possible)
-        if max_workers == 1:
-            for i, image_name in enumerate(images):
-                _, _, error = _process_one(i, image_name)
+        completed = 0
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_process_one, i, image_name): (i, image_name)
+                for i, image_name in enumerate(images)
+            }
+            for future in concurrent.futures.as_completed(futures):
+                _, image_name, error = future.result()
+                completed += 1
                 if progress_callback:
-                    progress_callback(i + 1, total_images, f"Processing {image_name}")
+                    progress_callback(completed, total_images, f"Processing {image_name}")
                 if error is not None:
                     image_path = os.path.join(chapter_path, image_name)
                     self._dbg(f"processing failed for '{image_path}': {error}")
+                    for pending in futures:
+                        if pending is not future:
+                            pending.cancel()
                     raise RuntimeError(f"Error processing {image_path}: {error}") from error
-        else:
-            completed = 0
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {
-                    executor.submit(_process_one, i, image_name): (i, image_name)
-                    for i, image_name in enumerate(images)
-                }
-                for future in concurrent.futures.as_completed(futures):
-                    _, image_name, error = future.result()
-                    completed += 1
-                    if progress_callback:
-                        progress_callback(completed, total_images, f"Processing {image_name}")
-                    if error is not None:
-                        image_path = os.path.join(chapter_path, image_name)
-                        self._dbg(f"processing failed for '{image_path}': {error}")
-                        for pending in futures:
-                            if pending is not future:
-                                pending.cancel()
-                        raise RuntimeError(f"Error processing {image_path}: {error}") from error
         
         # Add header to first image
         if settings.get('add_header', False) and settings.get('header_images'):
@@ -1051,11 +1033,20 @@ class WatermarkService:
                 ext = os.path.splitext(image_path)[1].lower()
                 lossy_quality = int(settings.get("lossy_quality", 100))
                 if ext in ('.jpg', '.jpeg'):
-                    rgb_result.save(image_path, quality=lossy_quality, subsampling=0)
+                    rgb_result.save(
+                        image_path,
+                        quality=lossy_quality,
+                        subsampling=max(0, min(2, _WM_JPEG_SUBSAMPLING)),
+                        optimize=False,
+                    )
                 elif ext == '.webp':
-                    rgb_result.save(image_path, quality=lossy_quality, method=4)
+                    rgb_result.save(
+                        image_path,
+                        quality=lossy_quality,
+                        method=max(0, min(6, _WM_WEBP_METHOD)),
+                    )
                 elif ext == '.png':
-                    rgb_result.save(image_path, compress_level=0)
+                    rgb_result.save(image_path, compress_level=max(0, min(9, _WM_PNG_COMPRESS_LEVEL)))
                 else:
                     rgb_result.save(image_path)
                 _safe_close(rgb_result)

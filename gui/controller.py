@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import webbrowser
 import zipfile
 import winreg
 from typing import Any, Callable
@@ -62,8 +63,9 @@ APP_VERSION = _load_app_version()
 GITHUB_REPO = "ViminioSM/MedStitch"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
 GITHUB_API_LATEST_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-AUTO_CHECK_UPDATES_ON_STARTUP = True
-AUTO_UPDATE_ON_STARTUP = True
+AUTO_CHECK_UPDATES_ON_STARTUP = False
+AUTO_UPDATE_ON_STARTUP = False
+
 
 _CONTEXT_MENU_GUI = os.path.join(_PROJECT_ROOT, "SmartStitchGUI.py")
 _ICON_FILE = os.path.join(_PROJECT_ROOT, "assets", "SmartStitchLogo.ico")
@@ -291,10 +293,8 @@ def _maybe_auto_close() -> None:
 
 
 def _startup_update_check() -> None:
-    _check_for_updates(
-        silent_if_latest=True,
-        auto_update=AUTO_UPDATE_ON_STARTUP,
-    )
+    # Startup check intentionally disabled: updates are manual via button.
+    return
 
 
 def _is_any_watermark_enabled() -> bool:
@@ -975,35 +975,22 @@ def _check_for_updates(*, silent_if_latest: bool = False, auto_update: bool = Fa
     latest_url = str(latest_release.get("html_url") or GITHUB_RELEASES_URL)
 
     if _version_tuple(latest_tag) > _version_tuple(APP_VERSION):
-        if auto_update:
-            ok, message = _self_update_from_release(latest_release)
-            if ok:
-                QMessageBox.information(_main_window, "Atualizacao automatica", message)
-                time.sleep(0.5)
-                sys.exit(0)
-            elif not silent_if_latest:
-                QMessageBox.warning(_main_window, "Atualizacao", message)
-            return
-
-        answer = QMessageBox.question(
+        QMessageBox.information(
             _main_window,
             "Atualizacao disponivel",
-            "Nova versao encontrada e sera instalada!\n\n"
+            "Nova versao encontrada!\n\n"
             f"Atual: {APP_VERSION}\n"
             f"Disponivel: {latest_tag or latest_name}\n\n"
-            "Clique em sim para continuar.",
-            QMessageBox.StandardButton.Yes,
-            QMessageBox.StandardButton.Yes,
+            "A pagina de releases sera aberta para baixar e instalar manualmente.",
         )
-        ok, message = _self_update_from_release(latest_release)
-        if ok:
-            QMessageBox.information(_main_window, "Atualizacao", message)
-            time.sleep(0.5)
-            sys.exit(0)
-        else:
-            QMessageBox.critical(_main_window, "Erro na atualizacao", message)
-            time.sleep(0.5)
-            sys.exit(1)
+        try:
+            webbrowser.open(latest_url, new=2)
+        except Exception:
+            QMessageBox.warning(
+                _main_window,
+                "Atualizacao",
+                f"Nao foi possivel abrir o navegador.\nAcesse manualmente:\n{latest_url}",
+            )
         return
 
     if silent_if_latest:
