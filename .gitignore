@@ -1,9 +1,45 @@
+# IDE
 .vscode/
+.idea/
+*.swp
+
+# Python
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pickle
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+
+# Build / distribution
 dist/
 build/
+SmartStitch.spec
+*.spec
+
+# Logs / settings (runtime)
 __logs__/
 __settings__/
-*.pickle
 *.log
-SmartStitch.spec
+
+# Rust native
+native/target/
+native/**/target/
+*.whl
+smartstitch_native*.pyd
+
+# C++ shell extension build
+native/shell_cpp/build/
+native/shell_cpp/*.dll
+native/shell_cpp/*.lib
+native/shell_cpp/*.exp
+native/shell_cpp/*.obj
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

@@ -1,8 +1,41 @@
 """Shared image utility functions for SmartStitch."""
 
+import os
+
 _MAX_PIL_IMAGE_DIMENSION = 65500
+# JPEG encoder fails much earlier than the generic PIL limit — ImageHandler
+# falls back JPEG->PNG above this height (see image_handler._MAX_PIL_IMAGE_DIMENSION).
+_MAX_JPEG_IMAGE_DIMENSION = 30000
 _SENSITIVITY_RETRY_FACTOR = 0.9
 _MAX_SENSITIVITY_RETRIES = 3
+
+
+def _read_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
+    value = (os.getenv(name) or "").strip()
+    if not value:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return max(minimum, min(parsed, maximum))
+
+
+def max_slice_segment_for_format(img_format: str | None) -> int:
+    """Return the max lossless slice height for a given output format.
+
+    JPEG is limited by its encoder (~30000px, above which we losslessly
+    fall back to PNG); all other formats use the generic PIL limit.
+    Overridable via SMARTSTITCH_MAX_SLICE_SEGMENT without quality impact
+    (only adds extra cut points, never recompresses).
+    """
+    override = _read_int_env("SMARTSTITCH_MAX_SLICE_SEGMENT", 0, 1, 65500)
+    if override > 0:
+        return override
+    fmt = (img_format or "").lower()
+    if fmt in (".jpg", ".jpeg", ".jfif"):
+        return _MAX_JPEG_IMAGE_DIMENSION
+    return _MAX_PIL_IMAGE_DIMENSION
 
 
 def is_dimension_error(exc: Exception) -> bool:

@@ -1,4 +1,5 @@
 """Image loading and saving with controlled parallelism."""
+
 import io
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -8,16 +9,26 @@ from PIL import Image as pil
 from PIL import UnidentifiedImageError
 from psd_tools import PSDImage
 
-from ..models import WorkDirectory
-from .global_logger import logFunc
-from ..utils.constants import PHOTOSHOP_FILE_TYPES
+try:
+    import pillow_avif  # type: ignore # Registers AVIF support in Pillow when installed.
+except Exception:
+    pillow_avif = None
 
+try:
+    import cairosvg  # type: ignore # Rasterizes SVG files for input-only support.
+except Exception:
+    cairosvg = None
+
+from ..models import WorkDirectory
+from ..utils.constants import PHOTOSHOP_FILE_TYPES
+from .global_logger import logFunc
 
 _MAX_PIL_IMAGE_DIMENSION = 30000
-# Limit workers to prevent system overload
-_MAX_LOAD_WORKERS_LIMIT = 16
-_MAX_SAVE_WORKERS_LIMIT = 20
-_DEFAULT_TIMEOUT_SECONDS = 5  # 5 seconds per operation
+# Worker limits scaled by CPU cores (no artificial cap)
+_MAX_LOAD_WORKERS_LIMIT = max(16, (os.cpu_count() or 8) * 2)
+_MAX_SAVE_WORKERS_LIMIT = max(20, (os.cpu_count() or 8) * 2)
+# Per-future wait after as_completed; large PSD/scans can exceed a few seconds.
+_DEFAULT_TIMEOUT_SECONDS = 300
 
 
 def _read_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -42,42 +53,34 @@ def _should_fallback_from_jpeg(img: pil.Image) -> bool:
     return max(img.size) > _MAX_PIL_IMAGE_DIMENSION
 
 
-def _load_image_worker(args: tuple) -> tuple[bool, str, bytes | None, str | None]:
-    """Worker function to load a single image and return (ok, path, bytes, err).
-
-    Must be a module-level function so it is picklable by ProcessPoolExecutor.
-    """
-    img_path, psd_first_layer_only = args
+def _open_image_with_svg_support(img_path: str) -> pil.Image:
     ext = os.path.splitext(img_path)[1].lower()
+    if ext != ".svg":
+        return pil.open(img_path)
 
-    try:
-        if ext not in PHOTOSHOP_FILE_TYPES:
-            image = pil.open(img_path)
-            image.load()
-        else:
-            psd = PSDImage.open(img_path)
-            if psd_first_layer_only and len(psd) > 0:
-                image = psd[0].topil()
-            else:
-                image = psd.topil()
+    if cairosvg is None:
+        raise RuntimeError(
+            "SVG input requires the 'cairosvg' package. Install dependencies and try again."
+        )
 
-        if image is None:
-            raise ValueError(f"Unable to decode image: {img_path}")
+    with open(img_path, "rb") as svg_file:
+        svg_bytes = svg_file.read()
+    png_bytes = cairosvg.svg2png(bytestring=svg_bytes)
+    return pil.open(io.BytesIO(png_bytes))
 
-        if image.mode not in ("RGB", "RGBA"):
-            image = image.convert("RGB")
 
-        buf = io.BytesIO()
-        image.save(buf, format="PNG")
-        try:
-            image.close()
-        except Exception:
-            pass
-        return True, img_path, buf.getvalue(), None
-    except (UnidentifiedImageError, OSError, ValueError) as exc:
-        return False, img_path, None, str(exc)
-    except Exception as exc:
-        return False, img_path, None, repr(exc)
+def _prepare_image_for_save(img: pil.Image, ext: str) -> pil.Image:
+    """Ensure image mode is compatible with the target format (e.g. JPEG needs RGB)."""
+    lower = ext.lower()
+    if lower in (".jpg", ".jpeg", ".jfif"):
+        if img.mode in ("RGBA", "LA"):
+            background = pil.new("RGB", img.size, (255, 255, 255))
+            alpha = img.split()[-1]
+            background.paste(img.convert("RGBA"), mask=alpha)
+            return background
+        if img.mode != "RGB":
+            return img.convert("RGB")
+    return img
 
 
 class ImageHandler:
@@ -87,7 +90,9 @@ class ImageHandler:
         # Load/decode workers are moderate; save workers can be higher for I/O throughput.
         cpu = cpu_count() or 2
         default_load_workers = min(cpu, _MAX_LOAD_WORKERS_LIMIT)
-        self.max_workers = min(max_workers or default_load_workers, _MAX_LOAD_WORKERS_LIMIT)
+        self.max_workers = min(
+            max_workers or default_load_workers, _MAX_LOAD_WORKERS_LIMIT
+        )
 
         load_workers_env = (os.getenv("SMARTSTITCH_LOAD_WORKERS") or "").strip()
         if load_workers_env:
@@ -105,7 +110,9 @@ class ImageHandler:
                 configured = self.max_workers
             self.save_workers = max(1, min(configured, _MAX_SAVE_WORKERS_LIMIT))
         else:
-            auto_save_workers = max(self.max_workers * 2, min(cpu * 2, _MAX_SAVE_WORKERS_LIMIT))
+            auto_save_workers = max(
+                self.max_workers * 2, min(cpu * 2, _MAX_SAVE_WORKERS_LIMIT)
+            )
             self.save_workers = max(1, min(auto_save_workers, _MAX_SAVE_WORKERS_LIMIT))
 
         # Encoding knobs: lowering encode complexity often improves save time more than adding threads.
@@ -148,8 +155,7 @@ class ImageHandler:
         Raises RuntimeError if any file is invalid/corrupted.
         """
         img_paths = [
-            os.path.join(workdirectory.input_path, f)
-            for f in workdirectory.input_files
+            os.path.join(workdirectory.input_path, f) for f in workdirectory.input_files
         ]
 
         images: list[pil.Image | None] = [None] * len(img_paths)
@@ -160,7 +166,7 @@ class ImageHandler:
             ext = os.path.splitext(path)[1].lower()
             try:
                 if ext not in PHOTOSHOP_FILE_TYPES:
-                    image = pil.open(path)
+                    image = _open_image_with_svg_support(path)
                     image.load()  # Force load into memory
                 else:
                     psd = PSDImage.open(path)
@@ -184,8 +190,7 @@ class ImageHandler:
         # Use threads instead of processes - safer and sufficient for I/O
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = [
-                executor.submit(_load_single, i, p)
-                for i, p in enumerate(img_paths)
+                executor.submit(_load_single, i, p) for i, p in enumerate(img_paths)
             ]
             for fut in as_completed(futures):
                 try:
@@ -199,7 +204,7 @@ class ImageHandler:
                 if img is not None:
                     try:
                         img.close()
-                    except Exception:
+                    except Exception:  # nosec B110
                         pass
             raise RuntimeError(
                 "Invalid/corrupted image detected. Folder processing aborted.\n"
@@ -223,23 +228,41 @@ class ImageHandler:
     ) -> str:
         os.makedirs(workdirectory.output_path, exist_ok=True)
         effective_format = img_format
-        if img_format.lower() in (".jpg", ".jpeg") and _should_fallback_from_jpeg(img_obj):
+        if img_format.lower() in (".jpg", ".jpeg") and _should_fallback_from_jpeg(
+            img_obj
+        ):
             effective_format = ".png"
 
         file_name = f"{img_iteration:02}{effective_format}"
         full_path = os.path.join(workdirectory.output_path, file_name)
 
+        quality = max(1, min(100, int(quality)))
         if effective_format in PHOTOSHOP_FILE_TYPES:
             PSDImage.frompil(img_obj).save(full_path)
         else:
-            if effective_format.lower() in (".jpg", ".jpeg"):
-                img_obj.save(full_path, quality=quality, subsampling=self.jpeg_subsampling, optimize=False)
-            elif effective_format.lower() == ".webp":
-                img_obj.save(full_path, quality=quality, method=self.webp_method)
-            elif effective_format.lower() == ".png":
-                img_obj.save(full_path, compress_level=self.png_compress_level)
-            else:
-                img_obj.save(full_path)
+            to_save = _prepare_image_for_save(img_obj, effective_format)
+            try:
+                if effective_format.lower() in (".jpg", ".jpeg"):
+                    to_save.save(
+                        full_path,
+                        quality=quality,
+                        subsampling=self.jpeg_subsampling,
+                        optimize=False,
+                    )
+                elif effective_format.lower() == ".avif":
+                    to_save.save(full_path, quality=quality, lossless=False)
+                elif effective_format.lower() == ".webp":
+                    to_save.save(full_path, quality=quality, method=self.webp_method)
+                elif effective_format.lower() == ".png":
+                    to_save.save(full_path, compress_level=self.png_compress_level)
+                else:
+                    to_save.save(full_path)
+            finally:
+                if to_save is not img_obj:
+                    try:
+                        to_save.close()
+                    except Exception:  # nosec B110
+                        pass
             img_obj.close()
 
         workdirectory.output_files.append(file_name)
@@ -251,44 +274,108 @@ class ImageHandler:
         img_objs: list[pil.Image],
         img_format: str = ".png",
         quality: int = 100,
+        extra_formats: list[str] | None = None,
     ) -> WorkDirectory:
-        """Save all images using threads (I/O-bound, no serialization overhead)."""
+        """Save all images using threads (I/O-bound, no serialization overhead).
+
+        When *extra_formats* is given (e.g. dual WEBP+PNG), every image is saved
+        once in *img_format* plus once per extra format into the SAME output
+        folder (``01.webp`` + ``01.png``). Stitching/detection runs only once —
+        only the final encode is duplicated.
+        """
         os.makedirs(workdirectory.output_path, exist_ok=True)
 
+        norm_primary = (img_format or ".png").lower()
+        norm_extra = [
+            str(e or "").lower()
+            for e in (extra_formats or [])
+            if str(e or "").strip()
+        ]
+        # De-dup extras: skip anything equal to the primary format.
+        norm_extra = [e for e in norm_extra if e and e != norm_primary]
+
         def _effective_format_for(img: pil.Image) -> str:
-            if img_format.lower() in (".jpg", ".jpeg") and _should_fallback_from_jpeg(img):
+            if img_format.lower() in (".jpg", ".jpeg") and _should_fallback_from_jpeg(
+                img
+            ):
                 return ".png"
             return img_format
 
         file_names: list[str] = [
             f"{i + 1:02}{_effective_format_for(img)}" for i, img in enumerate(img_objs)
         ]
+        extra_file_names: list[list[str]] = [
+            [f"{i + 1:02}{ext}" for ext in norm_extra]
+            for i, _img in enumerate(img_objs)
+        ]
         full_paths = [os.path.join(workdirectory.output_path, fn) for fn in file_names]
+        extra_full_paths: list[list[str]] = [
+            [os.path.join(workdirectory.output_path, fn) for fn in names]
+            for names in extra_file_names
+        ]
 
-        def _save_one(img: pil.Image, path: str) -> None:
+        quality = max(1, min(100, int(quality)))
+
+        def _save_path(img: pil.Image, path: str) -> None:
             ext = os.path.splitext(path)[1].lower()
             if ext in PHOTOSHOP_FILE_TYPES:
                 PSDImage.frompil(img).save(path)
-            else:
+                return
+            to_save = _prepare_image_for_save(img, ext)
+            try:
                 if ext in (".jpg", ".jpeg"):
-                    img.save(path, quality=quality, subsampling=self.jpeg_subsampling, optimize=False)
+                    to_save.save(
+                        path,
+                        quality=quality,
+                        subsampling=self.jpeg_subsampling,
+                        optimize=False,
+                    )
+                elif ext == ".avif":
+                    to_save.save(path, quality=quality, lossless=False)
                 elif ext == ".webp":
-                    img.save(path, quality=quality, method=self.webp_method)
+                    to_save.save(path, quality=quality, method=self.webp_method)
                 elif ext == ".png":
-                    img.save(path, compress_level=self.png_compress_level)
+                    to_save.save(path, compress_level=self.png_compress_level)
                 else:
-                    img.save(path)
-            img.close()
+                    to_save.save(path)
+            finally:
+                if to_save is not img:
+                    try:
+                        to_save.close()
+                    except Exception:  # nosec B110
+                        pass
+
+        def _save_one(img: pil.Image, path: str, extra_paths: list[str]) -> None:
+            try:
+                _save_path(img, path)
+                for extra_path in extra_paths:
+                    _save_path(img, extra_path)
+            finally:
+                img.close()
 
         save_pool_workers = max(1, min(self.save_workers, len(img_objs)))
+        # Huge slices each hold Wxh bytes; too many concurrent encodes
+        # multiplies peak RAM and thrashes. Identical bytes, only scheduling.
+        try:
+            max_h = max((img.size[1] for img in img_objs), default=0)
+            if max_h > 8000:
+                cap = max(1, (os.cpu_count() or 4) // 2)
+                save_pool_workers = max(1, min(save_pool_workers, cap))
+        except Exception:
+            pass
 
         with ThreadPoolExecutor(max_workers=save_pool_workers) as executor:
             futures = [
-                executor.submit(_save_one, img, path)
-                for img, path in zip(img_objs, full_paths)
+                executor.submit(_save_one, img, path, extras)
+                for img, path, extras in zip(
+                    img_objs, full_paths, extra_full_paths, strict=True
+                )
             ]
             for fut in as_completed(futures):
                 fut.result()
 
-        workdirectory.output_files.extend(file_names)
+        flat_files = list(file_names)
+        for names in extra_file_names:
+            flat_files.extend(names)
+        workdirectory.output_files.extend(flat_files)
         return workdirectory

@@ -1,4 +1,4 @@
-"""Backward-compatible re-export of the WatermarkService."""
+"""Watermark engine package."""
 
 from core.services.watermark.service import WatermarkService
 

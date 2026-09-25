@@ -1,15 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>SmartStitchWindow</class>
- <widget class="QMainWindow" name="SmartStitchWindow">
-  <property name="geometry">
-   <rect>
-    <x>0</x>
-    <y>0</y>
-    <width>485</width>
-    <height>435</height>
-   </rect>
-  </property>
+  <widget class="QMainWindow" name="SmartStitchWindow">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>500</width>
+     <height>700</height>
+    </rect>
+   </property>
+   <property name="minimumSize">
+    <size>
+     <width>470</width>
+     <height>620</height>
+    </size>
+   </property>
   <property name="windowTitle">
     <string>MedStitch</string>
   </property>
@@ -119,44 +125,188 @@
            <property name="bottomMargin">
             <number>6</number>
            </property>
-           <item>
-            <layout class="QHBoxLayout" name="presetButtonsLayout" stretch="1,1">
-             <property name="bottomMargin">
-              <number>0</number>
-             </property>
-             <item>
-              <widget class="QPushButton" name="typeButton">
-               <property name="text">
-                <string>Type (WEBP)</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QPushButton" name="redrawButton">
-               <property name="text">
-                <string>Redraw (JPG)</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <widget class="QLabel" name="heightLabel">
-             <property name="text">
-              <string>Rough Output Height</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QSpinBox" name="heightField">
-             <property name="minimum">
-              <number>1</number>
-             </property>
-             <property name="maximum">
-              <number>999999999</number>
-             </property>
-            </widget>
-           </item>
+            <item>
+             <layout class="QVBoxLayout" name="presetButtonsLayout">
+              <property name="bottomMargin">
+               <number>0</number>
+              </property>
+              <property name="spacing">
+               <number>4</number>
+              </property>
+              <item>
+               <widget class="QPushButton" name="typeButton">
+                <property name="text">
+                 <string>Type (WEBP)</string>
+                </property>
+<property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="redrawButton">
+                <property name="text">
+                 <string>Redraw (JPG)</string>
+                </property>
+<property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="dualButton">
+                <property name="text">
+                 <string>Dual (WEBP+PNG)</string>
+                </property>
+                <property name="toolTip">
+                 <string>Processa 1x e salva 2 arquivos: 01.webp + 01.png na mesma pasta</string>
+                </property>
+<property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="customButton">
+                <property name="text">
+                 <string>Personalizado</string>
+                </property>
+<property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QLabel" name="heightLabel">
+              <property name="text">
+               <string>Rough Output Height</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QSpinBox" name="heightField">
+              <property name="minimum">
+               <number>1</number>
+              </property>
+              <property name="maximum">
+               <number>999999999</number>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <layout class="QFormLayout" name="customWidthLayout">
+              <property name="fieldGrowthPolicy">
+               <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
+              </property>
+              <item row="0" column="0">
+               <widget class="QLabel" name="customWidthLabel">
+                <property name="text">
+                 <string>Largura:</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QSpinBox" name="customWidthSpin">
+                <property name="minimum">
+                 <number>100</number>
+                </property>
+                <property name="maximum">
+                 <number>5000</number>
+                </property>
+                <property name="value">
+                 <number>800</number>
+                </property>
+                <property name="toolTip">
+                 <string>Largura forçada para todas as imagens (personalizado)</string>
+                </property>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="customDetectorLabel">
+                <property name="text">
+                 <string>Detector:</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QComboBox" name="customDetectorCombo">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <item>
+                 <property name="text">
+                  <string>Direct</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>Smart</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="customFormatLabel">
+                <property name="text">
+                 <string>Formato:</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QComboBox" name="customFormatCombo">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <item>
+                 <property name="text">
+                  <string>JPG</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>PNG</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>WEBP</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>AVIF</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+             </layout>
+            </item>
           </layout>
          </widget>
         </item>
@@ -220,6 +370,16 @@
              </property>
             </widget>
            </item>
+                <item>
+                  <widget class="QCheckBox" name="postprocessCompactCheckbox">
+                   <property name="toolTip">
+                     <string>Remove faixa totalmente branca no topo quando ela ultrapassar 400px de altura.</string>
+                   </property>
+                   <property name="text">
+                     <string>Compactar topo branco (&gt; 400px)</string>
+                   </property>
+                  </widget>
+                </item>
            <item>
             <widget class="QCheckBox" name="runComicZipCheckbox">
              <property name="text">
@@ -234,48 +394,78 @@
              </property>
             </widget>
            </item>
-           <item>
-            <layout class="QHBoxLayout" name="waifuButtonsLayout" stretch="1,1">
-             <property name="bottomMargin">
-              <number>0</number>
-             </property>
-             <item>
-              <widget class="QPushButton" name="installWaifu2xButton">
-               <property name="text">
-                <string>Instalar Waifu2X</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QPushButton" name="repairWaifu2xButton">
-               <property name="text">
-                <string>Reparar Waifu2X</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="contextMenuButtonsLayout" stretch="1,1">
-             <property name="bottomMargin">
-              <number>0</number>
-             </property>
-             <item>
-              <widget class="QPushButton" name="installContextMenuButton">
-               <property name="text">
-                  <string>Adicionar MedStitch ao botão direito</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QPushButton" name="removeContextMenuButton">
-               <property name="text">
-                  <string>Remover MedStitch do botão direito</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
+            <item>
+             <layout class="QVBoxLayout" name="waifuButtonsLayout">
+              <property name="bottomMargin">
+               <number>0</number>
+              </property>
+              <property name="spacing">
+               <number>4</number>
+              </property>
+              <item>
+               <widget class="QPushButton" name="installWaifu2xButton">
+                <property name="text">
+                 <string>Instalar Waifu2X</string>
+                </property>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="repairWaifu2xButton">
+                <property name="text">
+                 <string>Reparar Waifu2X</string>
+                </property>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QVBoxLayout" name="contextMenuButtonsLayout">
+              <property name="bottomMargin">
+               <number>0</number>
+              </property>
+              <property name="spacing">
+               <number>4</number>
+              </property>
+              <item>
+               <widget class="QPushButton" name="installContextMenuButton">
+                <property name="text">
+                   <string>Adicionar MedStitch ao botão direito</string>
+                </property>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="removeContextMenuButton">
+                <property name="text">
+                   <string>Remover MedStitch do botão direito</string>
+                </property>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
              <item>
               <layout class="QHBoxLayout" name="appActionsLayout">
                <item>
@@ -305,6 +495,320 @@
         </item>
        </layout>
       </widget>
+      <widget class="QWidget" name="presetsTab">
+       <attribute name="title">
+        <string>Presets</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="presetsVerticalLayout">
+        <property name="leftMargin">
+         <number>6</number>
+        </property>
+        <property name="topMargin">
+         <number>6</number>
+        </property>
+        <property name="rightMargin">
+         <number>6</number>
+        </property>
+        <property name="bottomMargin">
+         <number>6</number>
+        </property>
+        <item>
+         <widget class="QGroupBox" name="presetsEditGroupBox">
+          <property name="title">
+           <string>Editar Predefinições</string>
+          </property>
+          <layout class="QVBoxLayout" name="presetsEditLayout" stretch="0,0,0,0">
+           <property name="spacing">
+            <number>4</number>
+           </property>
+           <item>
+            <widget class="QLabel" name="presetsHintLabel">
+             <property name="text">
+              <string>Edite largura, detector, formato e corte de cada predefinição. Os botões Type/Redraw/Dual/Personalizado e o menu de contexto usam estes valores.</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QComboBox" name="presetEditSelector">
+             <item>
+              <property name="text">
+               <string>Type</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Redraw</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Personalizado</string>
+              </property>
+             </item>
+             <item>
+              <property name="text">
+               <string>Dual (WEBP+PNG)</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item>
+            <layout class="QFormLayout" name="presetEditForm" columnstretch="0,1">
+             <property name="fieldGrowthPolicy">
+              <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
+             </property>
+             <item row="0" column="0">
+              <widget class="QLabel" name="presetWidthLabel">
+               <property name="text">
+                <string>Largura:</string>
+               </property>
+              </widget>
+             </item>
+              <item row="0" column="1">
+               <widget class="QSpinBox" name="presetWidthSpin">
+                <property name="minimum">
+                 <number>100</number>
+                </property>
+                <property name="maximum">
+                 <number>5000</number>
+                </property>
+                <property name="value">
+                 <number>800</number>
+                </property>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="minimumSize">
+                 <size>
+                  <width>120</width>
+                  <height>0</height>
+                 </size>
+                </property>
+               </widget>
+              </item>
+             <item row="1" column="0">
+              <widget class="QLabel" name="presetDetectorLabel">
+               <property name="text">
+                <string>Detector:</string>
+               </property>
+              </widget>
+             </item>
+              <item row="1" column="1">
+               <widget class="QComboBox" name="presetDetectorCombo">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="minimumSize">
+                 <size>
+                  <width>120</width>
+                  <height>0</height>
+                 </size>
+                </property>
+                <item>
+                 <property name="text">
+                  <string>Direct</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>Smart</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+             <item row="2" column="0">
+              <widget class="QLabel" name="presetFormatLabel">
+               <property name="text">
+                <string>Formato:</string>
+               </property>
+              </widget>
+             </item>
+              <item row="2" column="1">
+               <widget class="QComboBox" name="presetFormatCombo">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="minimumSize">
+                 <size>
+                  <width>120</width>
+                  <height>0</height>
+                 </size>
+                </property>
+                <property name="sizeAdjustPolicy">
+                 <enum>QComboBox::AdjustToMinimumContentsLengthWithIcon</enum>
+                </property>
+                <property name="minimumContentsLength">
+                 <number>14</number>
+                </property>
+                <item>
+                 <property name="text">
+                  <string>JPG</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>PNG</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>WEBP</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>AVIF</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>WEBP+PNG (dual)</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+             <item row="3" column="0">
+              <widget class="QLabel" name="presetSplitLabel">
+               <property name="text">
+                <string>Corte (altura):</string>
+               </property>
+              </widget>
+             </item>
+              <item row="3" column="1">
+               <widget class="QSpinBox" name="presetSplitSpin">
+                <property name="minimum">
+                 <number>1</number>
+                </property>
+                <property name="maximum">
+                 <number>999999999</number>
+                </property>
+                <property name="value">
+                 <number>15000</number>
+                </property>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="minimumSize">
+                 <size>
+                  <width>120</width>
+                  <height>0</height>
+                 </size>
+                </property>
+               </widget>
+              </item>
+             <item row="4" column="0">
+              <widget class="QLabel" name="presetQualityLabel">
+               <property name="text">
+                <string>Qualidade:</string>
+               </property>
+              </widget>
+             </item>
+              <item row="4" column="1">
+               <widget class="QSpinBox" name="presetQualitySpin">
+                <property name="minimum">
+                 <number>1</number>
+                </property>
+                <property name="maximum">
+                 <number>100</number>
+                </property>
+                <property name="value">
+                 <number>100</number>
+                </property>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="minimumSize">
+                 <size>
+                  <width>120</width>
+                  <height>0</height>
+                 </size>
+                </property>
+               </widget>
+              </item>
+            </layout>
+           </item>
+            <item>
+             <layout class="QVBoxLayout" name="presetEditButtonsLayout">
+              <property name="spacing">
+               <number>4</number>
+              </property>
+              <item>
+               <widget class="QPushButton" name="presetSaveButton">
+                <property name="text">
+                 <string>Salvar</string>
+                </property>
+<property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="presetResetButton">
+                <property name="text">
+                 <string>Restaurar padrão</string>
+                </property>
+<property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="presetApplyButton">
+                <property name="text">
+                 <string>Aplicar agora</string>
+                </property>
+<property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <spacer name="presetsVerticalSpacer">
+          <property name="orientation">
+           <enum>Qt::Vertical</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>20</width>
+            <height>40</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
       <widget class="QWidget" name="watermarkTab">
        <attribute name="title">
         <string>Watermark</string>
@@ -322,6 +826,41 @@
         <property name="bottomMargin">
          <number>6</number>
         </property>
+        <item>
+         <widget class="QGroupBox" name="watermarkChapterSkipGroupBox">
+          <property name="title">
+           <string>Frequência entre Páginas</string>
+          </property>
+          <layout class="QHBoxLayout" name="wmChapterSkipLayout">
+           <item>
+            <widget class="QLabel" name="wmChapterSkipLabel">
+             <property name="text">
+              <string>Aplicar a cada N páginas:</string>
+             </property>
+              <property name="toolTip">
+               <string>0 = todas as páginas. Ex: 2 = páginas 2,4,6... 3 = páginas 3,6,9...</string>
+              </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QSpinBox" name="watermarkChapterSkipSpin">
+             <property name="minimum">
+              <number>0</number>
+             </property>
+             <property name="maximum">
+              <number>100</number>
+             </property>
+             <property name="value">
+              <number>0</number>
+             </property>
+              <property name="toolTip">
+               <string>0 = todas as páginas. Ex: 2 = páginas 2,4,6... 3 = páginas 3,6,9...</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
         <item>
          <widget class="QGroupBox" name="watermarkFullpageGroupBox">
           <property name="title">
@@ -362,113 +901,194 @@
              </item>
             </layout>
            </item>
-           <item>
-            <layout class="QHBoxLayout" name="wmFullpageThresholdLayout">
-             <item>
-              <widget class="QLabel" name="wmFullpageThresholdLabel">
-               <property name="text">
-                <string>Threshold (uniformidade):</string>
-               </property>
-               <property name="toolTip">
-                <string>Define o quão uniforme uma área precisa ser para receber a marca d'água.
+            <item>
+             <layout class="QFormLayout" name="wmFullpageThresholdLayout">
+              <property name="fieldGrowthPolicy">
+               <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
+              </property>
+              <item row="0" column="0">
+               <widget class="QLabel" name="wmFullpageThresholdLabel">
+                <property name="text">
+                 <string>Threshold (uniformidade):</string>
+                </property>
+                <property name="toolTip">
+                 <string>Define o quão uniforme uma área precisa ser para receber a marca d'água.
 Valores mais baixos (ex: 150) = aceita áreas com mais variação de cor
 Valores mais altos (ex: 230) = só aceita áreas muito uniformes (quase totalmente brancas/pretas)
 Recomendado: 200</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QSpinBox" name="watermarkFullpageThresholdSpin">
-               <property name="toolTip">
-                <string>Define o quão uniforme uma área precisa ser para receber a marca d'água.
-Valores mais baixos (ex: 150) = aceita áreas com mais variação de cor
-Valores mais altos (ex: 230) = só aceita áreas muito uniformes (quase totalmente brancas/pretas)
-Recomendado: 200</string>
-               </property>
-               <property name="minimum">
-                <number>0</number>
-               </property>
-               <property name="maximum">
-                <number>255</number>
-               </property>
-               <property name="value">
-                <number>200</number>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="wmFullpageMaxLabel">
-               <property name="text">
-                <string>Máx por página:</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QSpinBox" name="watermarkFullpageMaxSpin">
-               <property name="minimum">
-                <number>0</number>
-               </property>
-               <property name="maximum">
-                <number>999</number>
-               </property>
-               <property name="value">
-                <number>1</number>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="wmFullpageInsertLayout">
-             <item>
-              <widget class="QCheckBox" name="watermarkFullpageInsertModeCheckbox">
-               <property name="text">
-                <string>Modo inserção (cortar e inserir)</string>
-               </property>
-               <property name="toolTip">
-                <string>Se ativado, a marca d'água será inserida cortando a imagem no meio da área uniforme.
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QSpinBox" name="watermarkFullpageThresholdSpin">
+                 <property name="toolTip">
+                  <string>Define o quão uniforme uma área precisa ser para receber a marca d'água.
+Valores mais baixos (ex: 100) = aceita áreas com mais variação
+Valores mais altos (ex: 200) = só aceita áreas muito uniformes
+Recomendado: 150</string>
+                 </property>
+                 <property name="minimum">
+                  <number>0</number>
+                 </property>
+                 <property name="maximum">
+                  <number>255</number>
+                 </property>
+                 <property name="value">
+                  <number>150</number>
+                 </property>
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="wmFullpageMaxLabel">
+                <property name="text">
+                 <string>Máx por página:</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QSpinBox" name="watermarkFullpageMaxSpin">
+                <property name="minimum">
+                 <number>0</number>
+                </property>
+                <property name="maximum">
+                 <number>999</number>
+                </property>
+                <property name="value">
+                 <number>1</number>
+                </property>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="wmFullpageMinAreaLabel">
+                <property name="text">
+                 <string>Altura mín. da área:</string>
+                </property>
+                <property name="toolTip">
+                 <string>Altura mínima (em pixels) que uma área uniforme precisa ter para receber a marca d'água.
+Exemplo: Se a marca d'água tem 150px e este valor é 400px, só áreas uniformes com 400px+ receberão a marca.</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QSpinBox" name="watermarkFullpageMinAreaSpin">
+                 <property name="toolTip">
+                  <string>Altura mínima (em pixels) que uma área uniforme precisa ter para receber a marca d'água.
+Valor baixo = insere em mais lugares. Recomendado: 100</string>
+                 </property>
+                 <property name="minimum">
+                  <number>0</number>
+                 </property>
+                 <property name="maximum">
+                  <number>2000</number>
+                 </property>
+                 <property name="value">
+                  <number>100</number>
+                 </property>
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+               </widget>
+              </item>
+              <item row="3" column="0">
+               <widget class="QLabel" name="wmFullpageSpacingTopLabel">
+                <property name="text">
+                 <string>Espaçamento superior:</string>
+                </property>
+                <property name="toolTip">
+                 <string>Distância mínima (px) do topo da área uniforme até a marca d'água</string>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QSpinBox" name="watermarkFullpageSpacingTopSpin">
+                <property name="toolTip">
+                 <string>Distância mínima (px) do topo da área uniforme até a marca d'água</string>
+                </property>
+                <property name="minimum">
+                 <number>0</number>
+                </property>
+                <property name="maximum">
+                 <number>500</number>
+                </property>
+                <property name="value">
+                  <number>20</number>
+                </property>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="0">
+               <widget class="QLabel" name="wmFullpageSpacingBottomLabel">
+                <property name="text">
+                 <string>Espaçamento inferior:</string>
+                </property>
+                <property name="toolTip">
+                 <string>Distância mínima (px) da parte de baixo da área uniforme até a marca d'água</string>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="1">
+               <widget class="QSpinBox" name="watermarkFullpageSpacingBottomSpin">
+                <property name="toolTip">
+                 <string>Distância mínima (px) da parte de baixo da área uniforme até a marca d'água</string>
+                </property>
+                <property name="minimum">
+                 <number>0</number>
+                </property>
+                <property name="maximum">
+                 <number>500</number>
+                </property>
+                <property name="value">
+                  <number>20</number>
+                </property>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="watermarkFullpageInsertModeCheckbox">
+              <property name="text">
+               <string>Modo inserção (cortar e inserir)</string>
+              </property>
+              <property name="toolTip">
+               <string>Se ativado, a marca d'água será inserida cortando a imagem no meio da área uniforme.
 Se desativado, a marca d'água será sobreposta na imagem sem alterar o tamanho.</string>
-               </property>
-               <property name="checked">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="wmFullpageMinAreaLabel">
-               <property name="text">
-                <string>Altura mín. da área:</string>
-               </property>
-               <property name="toolTip">
-                <string>Altura mínima (em pixels) que uma área uniforme precisa ter para receber a marca d'água.
-Exemplo: Se a marca d'água tem 150px e este valor é 400px, só áreas uniformes com 400px+ receberão a marca.</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QSpinBox" name="watermarkFullpageMinAreaSpin">
-               <property name="toolTip">
-                <string>Altura mínima (em pixels) que uma área uniforme precisa ter para receber a marca d'água.
-Exemplo: Se a marca d'água tem 150px e este valor é 400px, só áreas uniformes com 400px+ receberão a marca.</string>
-               </property>
-               <property name="minimum">
-                <number>100</number>
-               </property>
-               <property name="maximum">
-                <number>2000</number>
-               </property>
-               <property name="value">
-                <number>400</number>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="watermarkOverlayGroupBox">
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="watermarkOverlayGroupBox">
           <property name="title">
            <string>Marca d'água de Sobreposição</string>
           </property>
@@ -508,113 +1128,168 @@ Exemplo: Se a marca d'água tem 150px e este valor é 400px, só áreas uniforme
             </layout>
            </item>
            <item>
-            <layout class="QHBoxLayout" name="wmOverlayAdvancedLayout">
-             <item>
-              <widget class="QLabel" name="wmOverlayPositionLabel">
-               <property name="text">
-                <string>Posição:</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QComboBox" name="watermarkOverlayPositionCombo">
-               <item>
+             <layout class="QFormLayout" name="wmOverlayAdvancedLayout">
+              <property name="fieldGrowthPolicy">
+               <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
+              </property>
+              <item row="0" column="0">
+               <widget class="QLabel" name="wmOverlayPositionLabel">
                 <property name="text">
-                 <string>Automático</string>
+                 <string>Posição:</string>
                 </property>
-               </item>
-               <item>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QComboBox" name="watermarkOverlayPositionCombo">
+<property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <item>
+                 <property name="text">
+                  <string>Automático</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>Superior esquerdo</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>Superior direito</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>Inferior esquerdo</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>Inferior direito</string>
+                 </property>
+                </item>
+                <item>
+                 <property name="text">
+                  <string>Centro</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="wmOverlayOpacityLabel">
                 <property name="text">
-                 <string>Superior esquerdo</string>
+                 <string>Opacidade (%):</string>
                 </property>
-               </item>
-               <item>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QSpinBox" name="watermarkOverlayOpacitySpin">
+                <property name="minimum">
+                 <number>0</number>
+                </property>
+                <property name="maximum">
+                 <number>100</number>
+                </property>
+                <property name="value">
+                 <number>80</number>
+                </property>
+<property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="wmOverlayScaleLabel">
                 <property name="text">
-                 <string>Superior direito</string>
+                 <string>Escala (% largura):</string>
                 </property>
-               </item>
-               <item>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QSpinBox" name="watermarkOverlayScaleSpin">
+                <property name="minimum">
+                 <number>5</number>
+                </property>
+                <property name="maximum">
+                 <number>100</number>
+                </property>
+                <property name="value">
+                 <number>50</number>
+                </property>
+<property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="0">
+               <widget class="QLabel" name="wmOverlayMaxLabel">
                 <property name="text">
-                 <string>Inferior esquerdo</string>
+                 <string>Máx por página:</string>
                 </property>
-               </item>
-               <item>
+               </widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QSpinBox" name="watermarkOverlayMaxSpin">
+                <property name="minimum">
+                 <number>0</number>
+                </property>
+                <property name="maximum">
+                 <number>999</number>
+                </property>
+                <property name="value">
+                 <number>1</number>
+                </property>
+<property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="0">
+               <widget class="QLabel" name="wmOverlayMarginLabel">
                 <property name="text">
-                 <string>Inferior direito</string>
+                 <string>Margem:</string>
                 </property>
-               </item>
-               <item>
-                <property name="text">
-                 <string>Centro</string>
+                <property name="toolTip">
+                 <string>Distância (px) da borda para posições manuais (superior/inferior esquerdo/direito)</string>
                 </property>
-               </item>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="wmOverlayOpacityLabel">
-               <property name="text">
-                <string>Opacidade (%):</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QSpinBox" name="watermarkOverlayOpacitySpin">
-               <property name="minimum">
-                <number>0</number>
-               </property>
-               <property name="maximum">
-                <number>100</number>
-               </property>
-               <property name="value">
-                <number>80</number>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="wmOverlayAdvancedLayout2">
-             <item>
-              <widget class="QLabel" name="wmOverlayScaleLabel">
-               <property name="text">
-                <string>Escala (% largura):</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QSpinBox" name="watermarkOverlayScaleSpin">
-               <property name="minimum">
-                <number>5</number>
-               </property>
-               <property name="maximum">
-                <number>100</number>
-               </property>
-               <property name="value">
-                <number>50</number>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="wmOverlayMaxLabel">
-               <property name="text">
-                <string>Máx por página:</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QSpinBox" name="watermarkOverlayMaxSpin">
-               <property name="minimum">
-                <number>0</number>
-               </property>
-               <property name="maximum">
-                <number>999</number>
-               </property>
-               <property name="value">
-                <number>1</number>
-               </property>
-              </widget>
-             </item>
-            </layout>
+               </widget>
+              </item>
+              <item row="4" column="1">
+               <widget class="QSpinBox" name="watermarkOverlayMarginSpin">
+                <property name="toolTip">
+                 <string>Distância (px) da borda para posições manuais (superior/inferior esquerdo/direito)</string>
+                </property>
+                <property name="minimum">
+                 <number>0</number>
+                </property>
+                <property name="maximum">
+                 <number>500</number>
+                </property>
+                <property name="value">
+                 <number>10</number>
+                </property>
+<property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+               </widget>
+              </item>
+             </layout>
            </item>
           </layout>
          </widget>

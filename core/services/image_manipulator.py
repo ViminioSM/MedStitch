@@ -1,4 +1,6 @@
 """Image manipulation with controlled resource usage."""
+import os
+from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import cpu_count
 
 from PIL import Image as pil
@@ -11,6 +13,18 @@ _RESAMPLE_LANCZOS = getattr(getattr(pil, "Resampling", pil), "LANCZOS")
 
 # Limit workers to prevent system overload
 _MAX_WORKERS_LIMIT = 3
+
+
+def _resize_workers_default() -> int:
+    override = (os.getenv("SMARTSTITCH_RESIZE_WORKERS") or "").strip()
+    if override:
+        try:
+            return max(1, min(int(override), max(8, (os.cpu_count() or 4))))
+        except ValueError:
+            pass
+    # Threads share memory (no serialization); PIL resize releases the GIL in C,
+    # so parallelism is a pure win with identical LANCZOS pixels.
+    return max(1, min((os.cpu_count() or 4), 8))
 
 
 class ImageManipulator:
@@ -37,14 +51,10 @@ class ImageManipulator:
         custom_width: int = 720,
     ) -> list[pil.Image]:
         """Resizes all given images according to the set enforcement setting.
-        
-        Uses sequential processing to avoid:
-        - Memory explosion from serializing images to bytes
-        - Process spawning overhead
-        - System instability
-        
-        For most use cases, sequential resize is fast enough since
-        PIL resize is already optimized and I/O bound.
+
+        Thread-parallel LANCZOS with identical pixels (order preserved).
+        Threads share memory and PIL releases the GIL in C, so unlike
+        processes there is no serialization overhead.
         """
         if int(enforce_setting) == int(WIDTH_ENFORCEMENT.NONE):
             return img_objs
@@ -59,23 +69,27 @@ class ImageManipulator:
         
         if new_img_width <= 0:
             return img_objs
-        
-        # Sequential resize - safer and sufficient for most cases
-        resized_imgs: list[pil.Image] = []
-        for img in img_objs:
-            if img.size[0] != new_img_width:
-                img_ratio = img.size[1] / img.size[0]
-                new_img_height = int(img_ratio * new_img_width)
-                if new_img_height > 0:
-                    resized = img.resize((new_img_width, new_img_height), _RESAMPLE_LANCZOS)
-                    img.close()
-                    resized_imgs.append(resized)
-                else:
-                    resized_imgs.append(img)
-            else:
-                resized_imgs.append(img)
-        
-        return resized_imgs
+
+        def _resize_one(img: pil.Image) -> pil.Image:
+            if img.size[0] == new_img_width:
+                return img
+            img_ratio = img.size[1] / img.size[0]
+            new_img_height = int(img_ratio * new_img_width)
+            if new_img_height <= 0:
+                return img
+            resized = img.resize((new_img_width, new_img_height), _RESAMPLE_LANCZOS)
+            try:
+                img.close()
+            except Exception:
+                pass
+            return resized
+
+        needs = sum(1 for img in img_objs if img.size[0] != new_img_width)
+        if needs <= 1:
+            return [_resize_one(img) for img in img_objs]
+        workers = max(1, min(_resize_workers_default(), needs))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            return list(executor.map(_resize_one, img_objs))
 
     @logFunc(inclass=True)
     def combine(self, img_objs: list[pil.Image]) -> pil.Image:

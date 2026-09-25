@@ -16,7 +16,9 @@ def main() -> None:
     try:
         from PyInstaller.__main__ import run as pyinstaller_run
     except ImportError:  # pragma: no cover - defensive runtime check
-        print("[Build] PyInstaller is not installed. Install it with 'pip install pyinstaller'.")
+        print(
+            "[Build] PyInstaller is not installed. Install it with 'pip install pyinstaller'."
+        )
         sys.exit(1)
 
     project_root = Path(__file__).resolve().parent.parent
@@ -43,6 +45,11 @@ def main() -> None:
         add_data_args.extend(["--add-data", f"{icon_path};assets"])
     if ui_path.exists():
         add_data_args.extend(["--add-data", f"{ui_path};gui"])
+
+    # Include locale files for i18n
+    locales_dir = project_root / "core" / "i18n" / "locales"
+    if locales_dir.exists():
+        add_data_args.extend(["--add-data", f"{locales_dir};core/i18n/locales"])
 
     # Exclude large optional dependencies that may exist in the local Python env.
     # SmartStitch does not require these to run, but PyInstaller can still pick
@@ -73,11 +80,14 @@ def main() -> None:
     hidden_imports = [
         "PIL",
         "PIL.ImageQt",
+        "pillow_avif",
+        "cairosvg",
         "numpy",
         "PySide6",
         "psd_tools",
         "natsort",
         "backports.tarfile",
+        "smartstitch_native",
     ]
 
     args: list[str] = [
@@ -152,7 +162,9 @@ def main() -> None:
     if app_dist_dir.exists():
         print(f"[Build] Final application folder: {app_dist_dir}")
     else:
-        print("[Build] Warning: expected dist folder not found. Check PyInstaller output.")
+        print(
+            "[Build] Warning: expected dist folder not found. Check PyInstaller output."
+        )
 
 
 if __name__ == "__main__":

@@ -1,8 +1,10 @@
 natsort
-pillow
+pillow>=12.2.0
+pillow-avif-plugin
+cairosvg
 numpy
 pyside6
 pyqtdarktheme
-psd-tools
+psd-tools>=1.12.2
 pyinstaller
 backports.tarfile

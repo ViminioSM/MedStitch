@@ -7,25 +7,28 @@ _APP_ROOT = os.path.join(_APPDATA_ROOT, "SmartStitch")
 
 LOG_REL_DIR = os.path.join(_APP_ROOT, "__logs__")
 SETTINGS_REL_DIR = os.path.join(_APP_ROOT, "__settings__")
-OUTPUT_SUFFIX = ' [stitched]'
-POSTPROCESS_SUFFIX = ' [processed]'
+OUTPUT_SUFFIX = " [stitched]"
+POSTPROCESS_SUFFIX = " [processed]"
+# Dual output marker: process once, save twice (primary in [stitched] + copy in [stitched-dual]).
+DUAL_OUTPUT_TYPE = ".webp+.png"
+DUAL_SECONDARY_TYPE = ".png"
 SUPPORTED_IMG_TYPES = (
-    '.png',
-    '.webp',
-    '.jpg',
-    '.jpeg',
-    '.jfif',
-    '.bmp',
-    '.tiff',
-    '.tga',
-    '.psd',
-    '.psb',
+    ".png",
+    ".svg",
+    ".avif",
+    ".webp",
+    ".jpg",
+    ".jpeg",
+    ".jfif",
+    ".bmp",
+    ".tiff",
+    ".tga",
+    ".psd",
+    ".psb",
 )
 
-PHOTOSHOP_FILE_TYPES = (
-    ".psd",
-    ".psb"
-)
+PHOTOSHOP_FILE_TYPES = (".psd", ".psb")
+
 
 # Static Enums
 class WIDTH_ENFORCEMENT(IntEnum):

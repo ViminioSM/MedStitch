@@ -78,6 +78,17 @@ def launch(
     watermark: bool | None = None,
     autostart: bool = False,
 ):
+    # Trace log for debugging
+    try:
+        import os as _os
+        _log_dir = _os.path.join(_os.getenv("APPDATA", ""), "SmartStitch", "__logs__")
+        _os.makedirs(_log_dir, exist_ok=True)
+        with open(_os.path.join(_log_dir, "trace_launch.log"), "a", encoding="utf-8") as _f:
+            _f.write(f"launch() preset={preset} input={input_path} waifu={waifu} autostart={autostart}\n")
+            _f.flush()
+    except Exception:
+        pass
+
     payload = {
         "preset": preset,
         "input_path": input_path,
@@ -106,10 +117,6 @@ def launch(
         except Exception:
             pass
         _instance_lock.tryLock(0)
-
-    # If there is already an instance running, forward the job and exit.
-    if (preset or input_path or waifu or (watermark is not None) or autostart) and _send_to_existing_instance(payload):
-        return
 
     app = QApplication([])
     app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps)

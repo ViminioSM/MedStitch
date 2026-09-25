@@ -17,19 +17,30 @@ class AppSettings:
 
     # Core Settings
     split_height: int = 5000
+    # output_type supports ".jpg" ".png" ".webp" ".avif" and ".webp+.png" (dual,
+    # processed once and saved twice into the same [stitched] folder).
     output_type: str = ".jpg"
+    # Extra copies for dual/extra output (list of extensions, e.g. [".png"]).
+    # Sliced images are copied from the primary output — processing is NOT rerun.
+    extra_output_types: list = None
     lossy_quality: int = 100
+    # Preset store (editable on the GUI Presets tab). Each preset dict holds
+    # output_type, enforce_width, detector_type, split_height (+ smart fields).
+    presets: dict = None
     detector_type: int = DETECTION_TYPE.PIXEL_COMPARISON
     sensitivity: int = 100
     ignorable_pixels: int = 0
-    scan_step: int = 10
+    scan_step: int = 30
     enforce_type: int = WIDTH_ENFORCEMENT.MANUAL
     enforce_width: int = 800
     run_postprocess: bool = False
+    postprocess_compact_enabled: bool = False
     postprocess_app: str = ""
     postprocess_args: str = ""
     run_comiczip: bool = False
+    # General
     parallel_processing: bool = True
+    app_language: str = ""
     last_browse_location: str = ""
 
     # Watermark Settings - Fullpage
@@ -37,16 +48,19 @@ class AppSettings:
     watermark_fullpage_paths: str = ""
     watermark_fullpage_position: int = WATERMARK_FULLPAGE_POSITION.CENTER
     watermark_fullpage_frequency: int = WATERMARK_FULLPAGE_FREQUENCY.ONCE_PER_PAGE
-    watermark_fullpage_threshold: int = 200
+    watermark_fullpage_threshold: int = 150
     watermark_fullpage_alternate_interval: int = 2
     watermark_fullpage_max_per_page: int = 1
-    watermark_fullpage_block_strategy: int = WATERMARK_FULLPAGE_BLOCK_STRATEGY.FIRST
-    watermark_fullpage_min_spacing_top: int = 50
-    watermark_fullpage_min_spacing_bottom: int = 50
+    watermark_fullpage_block_strategy: int = WATERMARK_FULLPAGE_BLOCK_STRATEGY.BEST
+    watermark_fullpage_min_spacing_top: int = 20
+    watermark_fullpage_min_spacing_bottom: int = 20
     watermark_fullpage_min_spacing_sides: int = 10
-    watermark_fullpage_require_centered_space: bool = True
-    watermark_fullpage_min_area_height: int = 400
+    watermark_fullpage_require_centered_space: bool = False
+    watermark_fullpage_min_area_height: int = 100
     watermark_fullpage_insert_mode: bool = True
+
+    # Watermark Settings - Chapter-level page skip (0 = all pages)
+    watermark_chapter_skip: int = 0
 
     # Watermark Settings - Overlay
     watermark_overlay_enabled: bool = False
@@ -82,10 +96,15 @@ class AppSettings:
             else:
                 continue
             setattr(self, f.name, value)
-        
+
         # Override with values from json_dict
         if json_dict is not None:
             valid_fields = {f.name for f in fields(self)}
             for key, value in json_dict.items():
                 if key in valid_fields:
                     setattr(self, key, value)
+        # Mutable defaults must be per-instance, never shared across profiles.
+        if self.extra_output_types is None:
+            self.extra_output_types = []
+        if self.presets is None:
+            self.presets = {}
